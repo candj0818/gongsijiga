@@ -50,6 +50,18 @@ header h1 {
   margin: 0 0 8px;
   font-weight: 700;
 }
+.series-label {
+  display: inline-block;
+  margin: 0 0 14px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #a16207;
+  background: #fef3c7;
+  border: 1px solid #fde68a;
+  border-radius: 9999px;
+  letter-spacing: 0.2px;
+}
 .subtitle {
   color: var(--gray-500);
   margin: 0;
