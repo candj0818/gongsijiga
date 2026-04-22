@@ -372,13 +372,6 @@ function extractArea(data) {
   return null;
 }
 
-// 시세 추정 비율 (공시가격 / 시세)
-const MARKET_RATIO = {
-  apt: 0.70,    // 공동주택 ≈ 시세의 70%
-  house: 0.50,  // 개별주택 ≈ 시세의 50%
-  land: 0.70    // 공시지가 ≈ 시세의 70%
-};
-
 function renderPriceAnalysis(data) {
   const price = data.price?.value;
   if (!price || price <= 0) return '';
@@ -398,27 +391,7 @@ function renderPriceAnalysis(data) {
     `);
   }
 
-  // 2) 시세 추정
-  const ratio = MARKET_RATIO[type];
-  if (ratio) {
-    const marketPrice =
-      type === 'land'
-        ? Math.floor((price / ratio)) // 토지: 공시지가 기준 (원/㎡)
-        : Math.floor(price / ratio);  // 주택: 총액 기준
-    const ratioLabel =
-      type === 'land'
-        ? `공시지가 ÷ ${Math.round(ratio * 100)}% (㎡당)`
-        : `공시가격 ÷ ${Math.round(ratio * 100)}%`;
-    items.push(`
-      <div class="analysis-item">
-        <div class="analysis-label">💹 시세 추정</div>
-        <div class="analysis-value">${formatKRW(marketPrice)}${type === 'land' ? ' /㎡' : ''}</div>
-        <div class="analysis-formula">${ratioLabel}</div>
-      </div>
-    `);
-  }
-
-  // 3) 평당 가격
+  // 2) 평당 가격
   if (type === 'land') {
     // 공시지가는 원/㎡ → 원/평 = × 3.3058
     const perPyeong = Math.floor(price * 3.3058);
