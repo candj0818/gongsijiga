@@ -3,6 +3,7 @@
   "version": 2,
   "public": true,
   "cleanUrls": true,
+  "regions": ["icn1"],
   "functions": {
     "api/lookup.js": {
       "maxDuration": 60

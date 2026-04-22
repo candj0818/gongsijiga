@@ -552,9 +552,22 @@ async function safeFetchJson(url, label, maxRetries = 2) {
   let lastErr;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
+      const r = await fetch(url, {
+        signal: AbortSignal.timeout(12000),
+        headers: {
+          // VWorld 게이트웨이가 일부 기본 UA를 차단하는 듯하여 일반적인 UA로 설정
+          'User-Agent': 'Mozilla/5.0 (compatible; GongsiLookup/1.0)',
+          'Accept': 'application/json, text/plain, */*'
+        }
+      });
       const text = await r.text();
       console.log(`[DEBUG] ${label} 응답 상태:`, r.status, '본문 앞부분:', text.slice(0, 200));
+
+      // 502/503/504: VWorld 게이트웨이 일시 오류 → 재시도 대상
+      if (r.status === 502 || r.status === 503 || r.status === 504) {
+        throw new Error(`TRANSIENT_HTTP_${r.status}`);
+      }
+
       const trimmed = text.trim();
       if (!trimmed) throw new Error(`${label} API 응답이 비어있습니다`);
       if (trimmed.startsWith('<')) {
@@ -572,20 +585,21 @@ async function safeFetchJson(url, label, maxRetries = 2) {
       lastErr = err;
       const msg = String(err.message || err);
       const causeName = err.cause && err.cause.name ? err.cause.name : '';
-      // 네트워크 일시 오류만 재시도 (API 오류나 파싱 오류는 재시도 의미 없음)
+      // 네트워크 일시 오류 + 502/503/504 게이트웨이 오류 재시도
       const isTransient =
         msg.includes('fetch failed') ||
         msg.includes('socket hang up') ||
         msg.includes('ECONNRESET') ||
         msg.includes('ETIMEDOUT') ||
         msg.includes('The operation was aborted') ||
+        msg.includes('TRANSIENT_HTTP_') ||
         causeName.includes('SocketError') ||
         causeName.includes('ConnectTimeoutError');
 
       if (!isTransient || attempt === maxRetries) {
         throw err;
       }
-      const delay = 300 * Math.pow(2, attempt); // 300ms, 600ms
+      const delay = 500 * Math.pow(2, attempt); // 500ms, 1000ms
       console.log(`[DEBUG] ${label} 시도 ${attempt + 1}/${maxRetries + 1} 실패, ${delay}ms 후 재시도:`, msg.slice(0, 100));
       await new Promise((r) => setTimeout(r, delay));
     }
