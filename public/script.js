@@ -309,6 +309,9 @@ function renderResult(data) {
     </div>
   `;
 
+  // 📊 참고 지표 (HUG 한도 / 시세 추정 / 평당 가격)
+  html += renderPriceAnalysis(data);
+
   if (data.details && data.details.length > 0) {
     html += '<table class="detail-table"><tbody>';
     data.details.forEach((d) => {
@@ -344,6 +347,116 @@ function formatKRW(n) {
   if (man > 0) parts.push(man.toLocaleString() + '만');
   if (won > 0 && eok === 0) parts.push(won + '원');
   return parts.length > 0 ? parts.join(' ') : n.toLocaleString() + '원';
+}
+
+// =========================================
+// 참고 지표 계산 (HUG / 시세 / 평당)
+// =========================================
+// details 배열에서 면적(㎡) 숫자 추출
+// 우선순위: 전용면적 > 건물연면적 > 대지면적 > 면적
+function extractArea(data) {
+  if (!data.details) return null;
+  const priority = ['전용면적', '건물연면적', '대지면적', '면적'];
+  for (const label of priority) {
+    const d = data.details.find((x) => x.label === label);
+    if (d && d.value) {
+      const match = String(d.value).match(/([\d.,]+)/);
+      if (match) {
+        const num = parseFloat(match[1].replace(/,/g, ''));
+        if (!isNaN(num) && num > 0) {
+          return { label, m2: num };
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// 시세 추정 비율 (공시가격 / 시세)
+const MARKET_RATIO = {
+  apt: 0.70,    // 공동주택 ≈ 시세의 70%
+  house: 0.50,  // 개별주택 ≈ 시세의 50%
+  land: 0.70    // 공시지가 ≈ 시세의 70%
+};
+
+function renderPriceAnalysis(data) {
+  const price = data.price?.value;
+  if (!price || price <= 0) return '';
+
+  const type = data.type;
+  const items = [];
+
+  // 1) HUG 전세보증 한도 (apt/house만, land 제외)
+  if (type === 'apt' || type === 'house') {
+    const hugLimit = Math.floor(price * 1.26);
+    items.push(`
+      <div class="analysis-item">
+        <div class="analysis-label">🏦 HUG 전세보증 한도</div>
+        <div class="analysis-value">${formatKRW(hugLimit)}</div>
+        <div class="analysis-formula">공시가격 × 126%</div>
+      </div>
+    `);
+  }
+
+  // 2) 시세 추정
+  const ratio = MARKET_RATIO[type];
+  if (ratio) {
+    const marketPrice =
+      type === 'land'
+        ? Math.floor((price / ratio)) // 토지: 공시지가 기준 (원/㎡)
+        : Math.floor(price / ratio);  // 주택: 총액 기준
+    const ratioLabel =
+      type === 'land'
+        ? `공시지가 ÷ ${Math.round(ratio * 100)}% (㎡당)`
+        : `공시가격 ÷ ${Math.round(ratio * 100)}%`;
+    items.push(`
+      <div class="analysis-item">
+        <div class="analysis-label">💹 시세 추정</div>
+        <div class="analysis-value">${formatKRW(marketPrice)}${type === 'land' ? ' /㎡' : ''}</div>
+        <div class="analysis-formula">${ratioLabel}</div>
+      </div>
+    `);
+  }
+
+  // 3) 평당 가격
+  if (type === 'land') {
+    // 공시지가는 원/㎡ → 원/평 = × 3.3058
+    const perPyeong = Math.floor(price * 3.3058);
+    items.push(`
+      <div class="analysis-item">
+        <div class="analysis-label">📐 평당 공시지가</div>
+        <div class="analysis-value">${formatKRW(perPyeong)}</div>
+        <div class="analysis-formula">㎡당 × 3.3058</div>
+      </div>
+    `);
+  } else {
+    const area = extractArea(data);
+    if (area && area.m2 > 0) {
+      const pyeong = area.m2 / 3.3058;
+      const perPyeong = Math.floor(price / pyeong);
+      items.push(`
+        <div class="analysis-item">
+          <div class="analysis-label">📐 평당 공시가격</div>
+          <div class="analysis-value">${formatKRW(perPyeong)}</div>
+          <div class="analysis-formula">${area.label} ${area.m2}㎡ (${pyeong.toFixed(2)}평)</div>
+        </div>
+      `);
+    }
+  }
+
+  if (items.length === 0) return '';
+
+  return `
+    <div class="analysis-card">
+      <div class="analysis-title">📊 참고 지표</div>
+      <div class="analysis-grid">
+        ${items.join('')}
+      </div>
+      <div class="analysis-disclaimer">
+        ※ 경험칙 기반 추정치입니다. 실제 시세·보증한도는 물건 상태와 시장 상황에 따라 달라집니다.
+      </div>
+    </div>
+  `;
 }
 
 function showError(msg) {
