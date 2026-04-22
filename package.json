@@ -1,0 +1,17 @@
+{
+  "name": "gongsi-lookup",
+  "version": "1.0.0",
+  "description": "경매 물건 주소 붙여넣기로 공시가격을 간편하게 조회하는 웹사이트",
+  "private": true,
+  "scripts": {
+    "dev": "vercel dev",
+    "start": "vercel dev",
+    "deploy": "vercel --prod"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "vercel": "^34.0.0"
+  }
+}

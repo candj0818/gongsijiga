@@ -1,0 +1,407 @@
+/* =========================================
+   공시가격 간편 조회 — 스타일
+   ========================================= */
+
+:root {
+  --primary: #2563eb;
+  --primary-dark: #1d4ed8;
+  --success: #16a34a;
+  --warn: #d97706;
+  --danger: #dc2626;
+  --gray-50: #f9fafb;
+  --gray-100: #f3f4f6;
+  --gray-200: #e5e7eb;
+  --gray-300: #d1d5db;
+  --gray-500: #6b7280;
+  --gray-700: #374151;
+  --gray-900: #111827;
+  --radius: 10px;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo",
+    "Pretendard", "Noto Sans KR", "Segoe UI", Roboto, sans-serif;
+  background: var(--gray-50);
+  color: var(--gray-900);
+  margin: 0;
+  padding: 0;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+.container {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px 16px 48px;
+}
+
+/* ========== Header ========== */
+header {
+  text-align: center;
+  padding: 24px 0 32px;
+}
+header h1 {
+  font-size: 28px;
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+.subtitle {
+  color: var(--gray-500);
+  margin: 0;
+  font-size: 15px;
+}
+
+/* ========== Paste Box ========== */
+.paste-box {
+  background: white;
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  margin-bottom: 16px;
+}
+.paste-box label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: var(--gray-700);
+}
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  background: var(--primary);
+  color: white;
+  border-radius: 50%;
+  font-size: 13px;
+  font-weight: 700;
+}
+#addressInput {
+  width: 100%;
+  padding: 12px 14px;
+  border: 2px solid var(--gray-200);
+  border-radius: 8px;
+  font-size: 15px;
+  font-family: inherit;
+  resize: vertical;
+  transition: border-color 0.15s;
+}
+#addressInput:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+.paste-hint {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--gray-500);
+}
+
+/* ========== Detection Box ========== */
+.detection-box {
+  background: white;
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  margin-bottom: 16px;
+  animation: fadeIn 0.2s ease-out;
+}
+
+.parsed-preview {
+  background: var(--gray-50);
+  border: 1px solid var(--gray-200);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  font-size: 14px;
+  line-height: 1.8;
+}
+.parsed-preview .label {
+  color: var(--gray-500);
+  font-size: 12px;
+  display: inline-block;
+  min-width: 70px;
+}
+.parsed-preview .value {
+  color: var(--gray-900);
+  font-weight: 500;
+}
+
+.detection-label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 16px;
+  font-weight: 600;
+}
+.detection-reason {
+  color: var(--gray-500);
+  font-size: 14px;
+  margin-bottom: 16px;
+}
+
+.badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.badge-success {
+  background: #dcfce7;
+  color: #166534;
+}
+.badge-warn {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.detection-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* ========== Type Options (ambiguous) ========== */
+.type-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 16px 0;
+}
+.radio-chip {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--gray-50);
+  border: 2px solid var(--gray-200);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.radio-chip:hover {
+  border-color: var(--primary);
+  background: #eff6ff;
+}
+.radio-chip input[type="radio"] {
+  margin: 0;
+}
+.radio-chip input[type="radio"]:checked + span {
+  color: var(--primary);
+  font-weight: 600;
+}
+.radio-chip:has(input:checked) {
+  border-color: var(--primary);
+  background: #eff6ff;
+}
+.radio-chip span {
+  flex: 1;
+  font-size: 15px;
+}
+.radio-chip small {
+  color: var(--gray-500);
+  font-size: 12px;
+}
+
+/* ========== Buttons ========== */
+.primary-btn {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  font-family: inherit;
+}
+.primary-btn:hover:not(:disabled) {
+  background: var(--primary-dark);
+}
+.primary-btn:disabled {
+  background: var(--gray-300);
+  cursor: not-allowed;
+}
+
+.secondary-btn {
+  background: white;
+  color: var(--gray-700);
+  border: 1.5px solid var(--gray-300);
+  padding: 12px 20px;
+  border-radius: 8px;
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: inherit;
+}
+.secondary-btn:hover {
+  background: var(--gray-50);
+  border-color: var(--gray-500);
+}
+
+/* ========== Result Box ========== */
+.result-box {
+  background: white;
+  border-radius: var(--radius);
+  padding: 24px;
+  box-shadow: var(--shadow);
+  margin-bottom: 16px;
+  animation: fadeIn 0.3s ease-out;
+}
+.result-title {
+  font-size: 14px;
+  color: var(--gray-500);
+  margin: 0 0 6px;
+}
+.result-address {
+  font-size: 17px;
+  font-weight: 600;
+  margin: 0 0 20px;
+  color: var(--gray-900);
+}
+
+.price-card {
+  background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  padding: 20px;
+  text-align: center;
+  margin-bottom: 16px;
+}
+.price-card .price-label {
+  font-size: 13px;
+  color: var(--primary-dark);
+  font-weight: 500;
+  margin-bottom: 6px;
+}
+.price-card .price-value {
+  font-size: 32px;
+  font-weight: 700;
+  color: var(--gray-900);
+  margin: 0;
+}
+.price-card .price-year {
+  font-size: 13px;
+  color: var(--gray-500);
+  margin-top: 6px;
+}
+
+.detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.detail-table th,
+.detail-table td {
+  text-align: left;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--gray-200);
+}
+.detail-table th {
+  background: var(--gray-50);
+  color: var(--gray-500);
+  font-weight: 500;
+  width: 40%;
+}
+.detail-table tr:last-child th,
+.detail-table tr:last-child td {
+  border-bottom: none;
+}
+
+/* ========== Error Box ========== */
+.error-box {
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 16px;
+  color: #991b1b;
+  animation: fadeIn 0.2s ease-out;
+}
+
+/* ========== Info Box ========== */
+.info-box {
+  background: white;
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  margin-top: 24px;
+}
+.info-box h3 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+.info-box dl {
+  margin: 0 0 16px;
+}
+.info-box dt {
+  font-weight: 600;
+  color: var(--gray-700);
+  margin-top: 10px;
+}
+.info-box dd {
+  margin: 2px 0 0;
+  color: var(--gray-500);
+  font-size: 14px;
+}
+.disclaimer {
+  background: #fffbeb;
+  border-left: 3px solid var(--warn);
+  padding: 10px 14px;
+  font-size: 13px;
+  color: #78350f;
+  margin: 0;
+  border-radius: 4px;
+}
+
+footer {
+  text-align: center;
+  color: var(--gray-500);
+  font-size: 12px;
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--gray-200);
+}
+
+/* ========== Loading ========== */
+.loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--gray-500);
+}
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid var(--gray-200);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ========== Mobile ========== */
+@media (max-width: 600px) {
+  header h1 { font-size: 22px; }
+  .price-card .price-value { font-size: 26px; }
+  .detection-actions { flex-direction: column; }
+  .detection-actions button { width: 100%; }
+}
