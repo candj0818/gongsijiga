@@ -14,6 +14,22 @@ const DATA_KEY = process.env.DATA_GO_KR_KEY;
 const VWORLD_KEY = process.env.VWORLD_KEY;
 const MOCK = process.env.MOCK_MODE === 'true';
 
+// Vercel 서버리스에서 VWorld 같은 한국 서버 호출 시
+// "SocketError: other side closed" 이슈 회피
+// — Keep-Alive idle 연결 재사용 중에 상대가 닫아버리는 경쟁 상태 방지
+try {
+  const { Agent, setGlobalDispatcher } = require('undici');
+  setGlobalDispatcher(new Agent({
+    keepAliveTimeout: 10,       // idle 연결을 10ms 만에 닫음
+    keepAliveMaxTimeout: 10,
+    pipelining: 0,              // HTTP 파이프라이닝 비활성
+    connect: { timeout: 10000 }
+  }));
+  console.log('[INIT] undici dispatcher configured (fresh connections per request)');
+} catch (e) {
+  console.log('[INIT] undici not available:', e.message);
+}
+
 const API = {
   geocode: 'https://api.vworld.kr/req/address',
   // VWorld NED(국가공간정보센터) 직접 호출 — VWorld 키로 인증
@@ -133,9 +149,7 @@ async function getPnuFromLot(parsed) {
   url.searchParams.set('key', VWORLD_KEY);
 
   console.log('[DEBUG] 지번 지오코딩 요청:', addr);
-  const r = await fetch(url.toString(), { signal: AbortSignal.timeout(8000) });
-  const data = await r.json();
-  console.log('[DEBUG] 지번 지오코딩 응답:', JSON.stringify(data).slice(0, 500));
+  const data = await safeFetchJson(url.toString(), '지번 지오코딩');
   if (data?.response?.status !== 'OK') return null;
 
   // VWorld getcoord 응답: structure는 response.refined.structure 에 있음
@@ -183,9 +197,7 @@ async function getPnuFromRoad(parsed) {
   url1.searchParams.set('key', VWORLD_KEY);
 
   console.log('[DEBUG] 도로명 → 좌표 요청:', roadAddr);
-  const r1 = await fetch(url1.toString(), { signal: AbortSignal.timeout(8000) });
-  const d1 = await r1.json();
-  console.log('[DEBUG] 도로명 → 좌표 응답:', JSON.stringify(d1).slice(0, 500));
+  const d1 = await safeFetchJson(url1.toString(), '도로명→좌표');
   if (d1?.response?.status !== 'OK') return null;
 
   const point = d1.response.result?.point;
@@ -203,9 +215,7 @@ async function getPnuFromRoad(parsed) {
   url2.searchParams.set('key', VWORLD_KEY);
 
   console.log('[DEBUG] 좌표 → 지번 요청:', `${point.x},${point.y}`);
-  const r2 = await fetch(url2.toString(), { signal: AbortSignal.timeout(8000) });
-  const d2 = await r2.json();
-  console.log('[DEBUG] 좌표 → 지번 응답:', JSON.stringify(d2).slice(0, 500));
+  const d2 = await safeFetchJson(url2.toString(), '좌표→지번');
   if (d2?.response?.status !== 'OK') return null;
 
   const result = Array.isArray(d2.response.result) ? d2.response.result[0] : d2.response.result;
@@ -537,23 +547,50 @@ function extractItems(data) {
 }
 
 // 응답을 먼저 text로 받고 JSON인지 확인한 뒤 파싱 — 에러 메시지를 또렷하게
-async function safeFetchJson(url, label) {
-  const r = await fetch(url, { signal: AbortSignal.timeout(10000) });
-  const text = await r.text();
-  console.log(`[DEBUG] ${label} 응답 상태:`, r.status, '본문 앞부분:', text.slice(0, 300));
-  const trimmed = text.trim();
-  if (!trimmed) throw new Error(`${label} API 응답이 비어있습니다`);
-  if (trimmed.startsWith('<')) {
-    throw new Error(`${label} API가 JSON이 아닌 응답(HTML/XML)을 반환했습니다. 키 권한을 확인해주세요.`);
+// 네트워크 일시 오류(SocketError, fetch failed)는 최대 2회 재시도 (백오프 포함)
+async function safeFetchJson(url, label, maxRetries = 2) {
+  let lastErr;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(12000) });
+      const text = await r.text();
+      console.log(`[DEBUG] ${label} 응답 상태:`, r.status, '본문 앞부분:', text.slice(0, 200));
+      const trimmed = text.trim();
+      if (!trimmed) throw new Error(`${label} API 응답이 비어있습니다`);
+      if (trimmed.startsWith('<')) {
+        throw new Error(`${label} API가 JSON이 아닌 응답(HTML/XML)을 반환했습니다. 키 권한을 확인해주세요.`);
+      }
+      if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
+        throw new Error(`${label} API 오류: ${trimmed.slice(0, 150)}`);
+      }
+      try {
+        return JSON.parse(trimmed);
+      } catch (e) {
+        throw new Error(`${label} API 응답 파싱 실패: ${trimmed.slice(0, 150)}`);
+      }
+    } catch (err) {
+      lastErr = err;
+      const msg = String(err.message || err);
+      const causeName = err.cause && err.cause.name ? err.cause.name : '';
+      // 네트워크 일시 오류만 재시도 (API 오류나 파싱 오류는 재시도 의미 없음)
+      const isTransient =
+        msg.includes('fetch failed') ||
+        msg.includes('socket hang up') ||
+        msg.includes('ECONNRESET') ||
+        msg.includes('ETIMEDOUT') ||
+        msg.includes('The operation was aborted') ||
+        causeName.includes('SocketError') ||
+        causeName.includes('ConnectTimeoutError');
+
+      if (!isTransient || attempt === maxRetries) {
+        throw err;
+      }
+      const delay = 300 * Math.pow(2, attempt); // 300ms, 600ms
+      console.log(`[DEBUG] ${label} 시도 ${attempt + 1}/${maxRetries + 1} 실패, ${delay}ms 후 재시도:`, msg.slice(0, 100));
+      await new Promise((r) => setTimeout(r, delay));
+    }
   }
-  if (!trimmed.startsWith('{') && !trimmed.startsWith('[')) {
-    throw new Error(`${label} API 오류: ${trimmed.slice(0, 150)}`);
-  }
-  try {
-    return JSON.parse(trimmed);
-  } catch (e) {
-    throw new Error(`${label} API 응답 파싱 실패: ${trimmed.slice(0, 150)}`);
-  }
+  throw lastErr;
 }
 
 function formatAddress(parsed) {
