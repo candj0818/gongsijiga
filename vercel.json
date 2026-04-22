@@ -5,7 +5,7 @@
   "cleanUrls": true,
   "functions": {
     "api/lookup.js": {
-      "maxDuration": 15
+      "maxDuration": 60
     }
   },
   "headers": [

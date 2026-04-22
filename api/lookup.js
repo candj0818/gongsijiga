@@ -322,10 +322,11 @@ async function fetchHouse(pnu, requestDomain) {
 }
 
 async function fetchApt(pnu, parsed, requestDomain) {
-  // 최신 연도부터 역순으로 7개 연도 병렬 조회
+  // 최신 연도부터 역순으로 5개 연도 병렬 조회
   // (stdrYear 미지정 시 VWorld가 가장 오래된 연도만 반환하는 문제 해결)
+  // 7년 → 5년: Vercel 함수 실행 시간 절약 (대형 단지 대응)
   const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 7 }, (_, i) => currentYear - i);
+  const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
 
   // 한 연도당 여러 페이지까지 긁어오기 (대형 단지 대응: 5,000+ 세대)
   async function fetchYear(year) {
