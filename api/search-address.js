@@ -151,12 +151,16 @@ module.exports = async (req, res) => {
         road: fullRoad,
         zipcode: addr.zipcode || '',
         category: addr.category || category.toLowerCase(),
-        bldName: addr.bldnm || ''
+        bldName: addr.bldnm || '',
+        // 임시 디버그: VWorld 원본 address 객체 (첫 3개 후보만)
+        _rawAddr: candidates.length < 3 ? addr : undefined,
+        _rawItem: candidates.length < 3 ? { id: it.id, title: it.title, category: it.category } : undefined
       });
       if (candidates.length >= 20) break;
     }
 
-    console.log(`[SEARCH] ${candidates.length} candidates`);
+    console.log(`[SEARCH] ${candidates.length} candidates, sample address keys:`,
+      items[0] ? Object.keys(items[0].address || {}) : 'no items');
     json(res, 200, { success: true, candidates });
   } catch (err) {
     console.error('[SEARCH] error:', err);
