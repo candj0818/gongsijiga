@@ -34,6 +34,7 @@ loadEnv(path.join(__dirname, '.env.local'));
 // ---- API 핸들러 ----
 const lookupHandler = require('./api/lookup.js');
 const searchAddressHandler = require('./api/search-address.js');
+const tradesHandler = require('./api/trades.js');
 
 // POST 바디 읽기 + Vercel 스타일 res 헬퍼 부착 + 핸들러 실행 공용 함수
 function handleApiPost(handler, req, res) {
@@ -94,6 +95,10 @@ const server = http.createServer(async (req, res) => {
   }
   if (parsed.pathname === '/api/search-address' && req.method === 'POST') {
     handleApiPost(searchAddressHandler, req, res);
+    return;
+  }
+  if (parsed.pathname === '/api/trades' && req.method === 'POST') {
+    handleApiPost(tradesHandler, req, res);
     return;
   }
 

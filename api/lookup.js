@@ -119,7 +119,8 @@ module.exports = async (req, res) => {
       price: priceData.price,
       history: priceData.history || [],
       details: priceData.details || [],
-      notice: priceData.notice || null
+      notice: priceData.notice || null,
+      tradeParams: priceData.tradeParams || null
     });
   } catch (err) {
     console.error('[lookup]', err);
@@ -397,7 +398,23 @@ async function fetchApt(pnu, parsed, requestDomain) {
     });
 
     if (dongOnly.length === 0) {
-      const err = new Error('해당 동/호가 공동주택 공시가격 데이터를 찾을수 없습니다. 정확한 주소를 다시 입력해주세요');
+      // 실제 단지에 존재하는 동 목록을 수집해서 에러 메시지에 포함
+      // (경매 맥락: 사용자가 주소를 잘못 입력했을 때 바로 수정할 수 있도록)
+      const availableDongs = [...new Set(
+        allItems.map((it) => String(it.dongNm || '').trim()).filter(Boolean)
+      )].sort((a, b) => {
+        // 숫자 우선 정렬
+        const na = parseInt(a.replace(/[^0-9]/g, ''), 10);
+        const nb = parseInt(b.replace(/[^0-9]/g, ''), 10);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return a.localeCompare(b);
+      });
+      const dongListStr = availableDongs.length > 0
+        ? availableDongs.slice(0, 30).join(', ') + (availableDongs.length > 30 ? ` 외 ${availableDongs.length - 30}개` : '')
+        : '(데이터 없음)';
+      const err = new Error(
+        `입력하신 ${target}동이 이 단지에 없습니다. 사용 가능한 동: ${dongListStr}`
+      );
       err.code = 'UNIT_NOT_FOUND';
       throw err;
     }
@@ -406,7 +423,21 @@ async function fetchApt(pnu, parsed, requestDomain) {
   if (parsed.ho) {
     const hoOnly = matched.filter((it) => String(it.hoNm || '') === String(parsed.ho));
     if (hoOnly.length === 0) {
-      const err = new Error('해당 동/호가 공동주택 공시가격 데이터를 찾을수 없습니다. 정확한 주소를 다시 입력해주세요');
+      const availableHos = [...new Set(
+        matched.map((it) => String(it.hoNm || '').trim()).filter(Boolean)
+      )].sort((a, b) => {
+        const na = parseInt(a, 10);
+        const nb = parseInt(b, 10);
+        if (!isNaN(na) && !isNaN(nb)) return na - nb;
+        return a.localeCompare(b);
+      });
+      const hoListStr = availableHos.length > 0
+        ? availableHos.slice(0, 20).join(', ') + (availableHos.length > 20 ? ` 외 ${availableHos.length - 20}개` : '')
+        : '(데이터 없음)';
+      const dongLabel = matched[0]?.dongNm || '';
+      const err = new Error(
+        `${dongLabel} ${parsed.ho}호가 이 단지에 없습니다. 사용 가능한 호: ${hoListStr}`
+      );
       err.code = 'UNIT_NOT_FOUND';
       throw err;
     }
@@ -434,6 +465,8 @@ async function fetchApt(pnu, parsed, requestDomain) {
     .sort((a, b) => b.year - a.year);
 
   // 동/호 매칭에 성공한 경우만 여기 도달 — notice 불필요
+  // 실거래가 조회에서 사용할 수 있도록 tradeParams 포함
+  const exclusiveAreaNum = parseFloat(latest.prvuseAr) || null;
   return {
     price: {
       label: '공동주택가격',
@@ -447,7 +480,12 @@ async function fetchApt(pnu, parsed, requestDomain) {
       { label: '호', value: latest.hoNm || '-' },
       { label: '전용면적', value: latest.prvuseAr ? latest.prvuseAr + '㎡' : '-' }
     ],
-    notice: null
+    notice: null,
+    tradeParams: {
+      aptName: parsed.buildingName || '',
+      exclusiveArea: exclusiveAreaNum,
+      jibun: parsed.isRoad ? null : `${parsed.bonbun}${parsed.bubun && parsed.bubun !== '0' ? '-' + parsed.bubun : ''}`
+    }
   };
 }
 

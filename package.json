@@ -11,6 +11,9 @@
   "engines": {
     "node": ">=18"
   },
+  "dependencies": {
+    "fast-xml-parser": "^4.4.1"
+  },
   "devDependencies": {
     "vercel": "^34.0.0"
   }

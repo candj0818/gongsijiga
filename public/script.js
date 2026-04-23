@@ -29,6 +29,8 @@ let currentType = null;
 let currentCandidates = [];
 let selectedCandidateIdx = null;
 let lastSearchQuery = null;
+let lastLookupData = null;   // 최근 공시가격 조회 응답 (실거래가 조회시 재사용)
+let tradesState = null;      // { propertyType, startYmd, endYmd, trades[], monthsQueried, totalInLawd }
 
 // --- Type labels ---
 const TYPE_LABELS = {
@@ -556,8 +558,280 @@ function renderResult(data) {
     html += `<p class="disclaimer" style="margin-top:16px;">${data.notice}</p>`;
   }
 
+  // 실거래가 섹션 (공동주택에만 표시 — 단독/토지는 실거래 데이터 구조가 다름)
+  if (data.type === 'apt' && data.pnu && data.tradeParams) {
+    html += renderTradesIntro(data);
+  }
+
   resultContent.innerHTML = html;
   resultBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  // 실거래가 섹션 이벤트 바인딩
+  if (data.type === 'apt' && data.pnu && data.tradeParams) {
+    attachTradesHandlers();
+  }
+}
+
+// =========================================
+// 실거래가 (국토교통부 RTMS)
+// =========================================
+
+// 단지명으로 propertyType 추정
+// 빌라/다세대/연립 계열은 rowhouse 엔드포인트를 우선 시도
+function detectPropertyType(bldName) {
+  if (!bldName) return 'apt';
+  const s = String(bldName);
+  if (/(빌라|다세대|연립|타운하우스|빌|하우스|맨션|홈스|팰리스|스테이|하임|캐슬(?!밖)|파크빌|파크하우스)/i.test(s)) {
+    return 'rowhouse';
+  }
+  return 'apt';
+}
+
+// YYYYMM 문자열 → {y, m}
+function ymdToYm(ymd) {
+  return { y: parseInt(ymd.slice(0, 4), 10), m: parseInt(ymd.slice(4, 6), 10) };
+}
+function ymToYmd(y, m) {
+  return `${y}${String(m).padStart(2, '0')}`;
+}
+// 현재 월에서 N개월 전 YYYYMM
+function ymdOffsetMonths(monthsAgo) {
+  const d = new Date();
+  d.setDate(1);
+  d.setMonth(d.getMonth() - monthsAgo);
+  return ymToYmd(d.getFullYear(), d.getMonth() + 1);
+}
+// 두 YYYYMM 중 더 이른 것
+function minYmd(a, b) {
+  return a < b ? a : b;
+}
+// YYYYMM을 "YYYY년 M월"로
+function formatYmd(ymd) {
+  return `${ymd.slice(0, 4)}년 ${parseInt(ymd.slice(4, 6), 10)}월`;
+}
+
+// 초기 렌더: "실거래가 조회" 버튼 + 타입 토글
+function renderTradesIntro(data) {
+  const bldName = data.tradeParams.aptName || '';
+  const autoType = detectPropertyType(bldName);
+  const aptChecked = autoType === 'apt' ? 'checked' : '';
+  const rhChecked = autoType === 'rowhouse' ? 'checked' : '';
+  const areaLabel = data.tradeParams.exclusiveArea
+    ? `전용 ${data.tradeParams.exclusiveArea}㎡ ±1㎡`
+    : '전용면적 정보 없음 (단지 전체 거래 표시)';
+
+  return `
+    <div class="trades-section" id="tradesSection" style="margin-top:24px;">
+      <h4 class="trades-title">💰 실거래가 조회 <small>(국토교통부 RTMS)</small></h4>
+      <div class="trades-intro">
+        <div class="trades-filter-info">
+          <div><strong>단지:</strong> ${escapeHtml(bldName || '(단지명 없음)')}</div>
+          <div><strong>필터:</strong> ${escapeHtml(areaLabel)}</div>
+        </div>
+        <div class="trades-type-toggle">
+          <label class="radio-chip compact">
+            <input type="radio" name="tradeType" value="apt" ${aptChecked} />
+            <span>🏢 아파트</span>
+          </label>
+          <label class="radio-chip compact">
+            <input type="radio" name="tradeType" value="rowhouse" ${rhChecked} />
+            <span>🏘️ 연립/다세대</span>
+          </label>
+        </div>
+        <button id="loadTradesBtn" class="primary-btn">최근 2년 거래 조회</button>
+      </div>
+      <div id="tradesResult"></div>
+    </div>
+  `;
+}
+
+function attachTradesHandlers() {
+  const btn = document.getElementById('loadTradesBtn');
+  if (btn) btn.addEventListener('click', () => loadInitialTrades());
+}
+
+async function loadInitialTrades() {
+  const selected = document.querySelector('input[name="tradeType"]:checked');
+  const propertyType = selected ? selected.value : 'apt';
+  // 최근 24개월: 이번 달 ~ 24개월 전
+  const endYmd = ymdOffsetMonths(0);
+  const startYmd = ymdOffsetMonths(23);
+  await fetchAndRenderTrades(propertyType, startYmd, endYmd, { reset: true });
+}
+
+async function loadMoreTrades() {
+  if (!tradesState) return;
+  // 기존 startYmd 직전부터 12개월 더
+  const cur = ymdToYm(tradesState.startYmd);
+  // startYmd의 한 달 전이 새 endYmd
+  let ey = cur.y;
+  let em = cur.m - 1;
+  if (em < 1) { em = 12; ey--; }
+  const newEnd = ymToYmd(ey, em);
+  // 12개월 전
+  let sy = ey;
+  let sm = em - 11;
+  while (sm < 1) { sm += 12; sy--; }
+  const newStart = ymToYmd(sy, sm);
+  await fetchAndRenderTrades(tradesState.propertyType, newStart, newEnd, { reset: false });
+}
+
+async function fetchAndRenderTrades(propertyType, startYmd, endYmd, { reset }) {
+  const container = document.getElementById('tradesResult');
+  if (!container || !lastLookupData) return;
+
+  // 로딩 표시
+  if (reset) {
+    container.innerHTML = '<div class="loading"><span class="spinner"></span>실거래가를 조회하고 있습니다... (최대 24개월)</div>';
+    // intro 박스 숨기기 (조회 시작하면 툴바만 남김)
+    const intro = document.querySelector('#tradesSection .trades-intro');
+    if (intro) intro.style.display = 'none';
+  } else {
+    const loadMoreBtn = document.getElementById('loadMoreTradesBtn');
+    if (loadMoreBtn) {
+      loadMoreBtn.disabled = true;
+      loadMoreBtn.textContent = '조회 중...';
+    }
+  }
+
+  try {
+    const res = await fetch('/api/trades', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        pnu: lastLookupData.pnu,
+        aptName: lastLookupData.tradeParams.aptName,
+        exclusiveArea: lastLookupData.tradeParams.exclusiveArea,
+        propertyType,
+        startYmd,
+        endYmd
+      })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) throw new Error(data.error || '실거래가 조회 실패');
+
+    if (reset) {
+      tradesState = {
+        propertyType: data.propertyType,
+        startYmd: data.startYmd,
+        endYmd: data.endYmd,
+        trades: data.trades || [],
+        monthsQueried: data.monthsQueried,
+        totalInLawd: data.totalInLawd
+      };
+    } else {
+      // 더 보기: 기존에 합치고 정렬
+      tradesState.startYmd = minYmd(tradesState.startYmd, data.startYmd);
+      tradesState.monthsQueried += data.monthsQueried;
+      tradesState.totalInLawd += data.totalInLawd;
+      tradesState.trades = [...tradesState.trades, ...(data.trades || [])].sort((a, b) =>
+        a.dealDate < b.dealDate ? 1 : a.dealDate > b.dealDate ? -1 : 0
+      );
+    }
+    renderTradesTable();
+  } catch (err) {
+    console.error(err);
+    container.innerHTML = `<div class="trades-error">실거래가 조회 실패: ${escapeHtml(err.message || '알 수 없는 오류')}</div>`;
+  }
+}
+
+function renderTradesTable() {
+  const container = document.getElementById('tradesResult');
+  if (!container || !tradesState) return;
+
+  const { propertyType, startYmd, endYmd, trades, monthsQueried, totalInLawd } = tradesState;
+  const periodLabel = `${formatYmd(startYmd)} ~ ${formatYmd(endYmd)} (${monthsQueried}개월)`;
+  const typeLabel = propertyType === 'rowhouse' ? '연립/다세대' : '아파트';
+
+  // 최대 확장 한도 체크 (서버측 60개월 제한과 맞춤)
+  const canLoadMore = monthsQueried < 60;
+
+  let html = `
+    <div class="trades-header">
+      <div>
+        <div><strong>${escapeHtml(typeLabel)}</strong> · ${escapeHtml(periodLabel)}</div>
+        <div class="trades-summary">일치 거래 ${trades.length}건 / 법정동 전체 ${totalInLawd}건</div>
+      </div>
+    </div>
+  `;
+
+  if (trades.length === 0) {
+    html += `
+      <div class="trades-empty">
+        ${escapeHtml(periodLabel)} 내 일치 거래가 없습니다.
+        ${totalInLawd > 0
+          ? `법정동 전체로는 ${totalInLawd}건 있어요 — 단지명 매칭이 안 됐거나 전용면적이 다를 수 있습니다.`
+          : '이 법정동에는 해당 유형 거래 자체가 없습니다.'}
+      </div>
+    `;
+  } else {
+    html += `
+      <div class="trades-table-wrap">
+        <table class="trades-table">
+          <thead>
+            <tr>
+              <th>계약일</th>
+              <th>동</th>
+              <th>층</th>
+              <th>전용면적</th>
+              <th class="num">거래가</th>
+              <th>비고</th>
+            </tr>
+          </thead>
+          <tbody>
+    `;
+    trades.forEach((t) => {
+      const priceFmt = t.price != null ? `${t.price.toLocaleString()}만원` : '-';
+      const areaFmt = t.area != null ? `${t.area.toFixed(2)}㎡` : '-';
+      const rowClass = t.cancelled ? 'cancelled' : '';
+      const note = t.cancelled
+        ? `<span class="badge-cancel">해제</span>`
+        : (t.dealType ? escapeHtml(t.dealType) : '');
+      html += `
+        <tr class="${rowClass}">
+          <td>${escapeHtml(t.dealDate)}</td>
+          <td>${escapeHtml(t.dong || '-')}</td>
+          <td>${escapeHtml(t.floor || '-')}</td>
+          <td>${escapeHtml(areaFmt)}</td>
+          <td class="num">${escapeHtml(priceFmt)}</td>
+          <td>${note}</td>
+        </tr>
+      `;
+    });
+    html += `</tbody></table></div>`;
+  }
+
+  // 더 과거 보기 버튼
+  if (canLoadMore) {
+    html += `
+      <div class="trades-actions">
+        <button id="loadMoreTradesBtn" class="secondary-btn">더 과거 1년 보기</button>
+        <button id="resetTradesBtn" class="secondary-btn">조건 다시 선택</button>
+      </div>
+    `;
+  } else {
+    html += `
+      <div class="trades-actions">
+        <div class="trades-limit-notice">최대 조회 기간(60개월)에 도달했습니다.</div>
+        <button id="resetTradesBtn" class="secondary-btn">조건 다시 선택</button>
+      </div>
+    `;
+  }
+
+  container.innerHTML = html;
+
+  const moreBtn = document.getElementById('loadMoreTradesBtn');
+  if (moreBtn) moreBtn.addEventListener('click', () => loadMoreTrades());
+  const resetBtn = document.getElementById('resetTradesBtn');
+  if (resetBtn) resetBtn.addEventListener('click', () => {
+    tradesState = null;
+    // intro 다시 노출
+    if (lastLookupData) {
+      const section = document.getElementById('tradesSection');
+      if (section) section.outerHTML = renderTradesIntro(lastLookupData);
+      attachTradesHandlers();
+    }
+  });
 }
 
 function formatKRW(n) {
@@ -677,6 +951,9 @@ function showLoading() {
 // =========================================
 async function lookupPrice(parsed, type) {
   showLoading();
+  // 이전 조회의 실거래가 상태는 초기화
+  lastLookupData = null;
+  tradesState = null;
   try {
     const res = await fetch('/api/lookup', {
       method: 'POST',
@@ -687,6 +964,7 @@ async function lookupPrice(parsed, type) {
     if (!res.ok || !data.success) {
       throw new Error(data.error || '조회에 실패했습니다');
     }
+    lastLookupData = data;
     renderResult(data);
   } catch (err) {
     console.error(err);
