@@ -118,49 +118,58 @@ module.exports = async (req, res) => {
     const items = data?.response?.result?.items || [];
     const seen = new Set();
     const candidates = [];
+
+    // 시/도 + 시/군/구 추출 헬퍼
+    const SIDO_SIGUNGU_RE = /^(\S+?(?:특별시|광역시|특별자치시|특별자치도|도))\s+(\S+?(?:시|군|구))/;
+    function extractSidoSigungu(str) {
+      if (!str) return null;
+      const m = str.match(SIDO_SIGUNGU_RE);
+      return m ? { sido: m[1], sigungu: m[2] } : null;
+    }
+
     for (const it of items) {
       const addr = it.address || {};
-      const title = (it.title || addr.parcel || addr.road || '').trim();
-      if (!title) continue;
-
-      // 시/도 + 시/군/구 추출 (VWorld가 구조화 필드를 안 주는 경우를 대비해
-      // parcel/road 전체 문자열에서 regex fallback)
-      let sido = (addr.sido || addr.level1 || '').trim();
-      let sigungu = (addr.sigungu || addr.level2 || '').trim();
       const fullParcel = (addr.parcel || '').trim();
       const fullRoad = (addr.road || '').trim();
-      if (!sido || !sigungu) {
-        const src = fullParcel || fullRoad || '';
-        const m = src.match(/^(\S+?(?:특별시|광역시|특별자치시|특별자치도|도))\s+(\S+?(?:시|군|구))/);
-        if (m) {
-          if (!sido) sido = m[1];
-          if (!sigungu) sigungu = m[2];
-        }
-      }
 
-      // 중복 체크: title + sido + sigungu 조합으로 (같은 동이름이 여러 시에 있을 수 있음)
-      const dedupKey = `${sido}|${sigungu}|${title}`;
+      // road 필드에 시/도가 있으므로 그걸 우선 시도, 없으면 parcel
+      const extracted =
+        extractSidoSigungu(fullRoad) ||
+        extractSidoSigungu(fullParcel) ||
+        extractSidoSigungu((it.title || '').trim()) ||
+        { sido: '', sigungu: '' };
+
+      // 표시용 title: ROAD 쿼리면 road 전체(괄호 주석 제거), 아니면 parcel/title 그대로
+      let displayTitle = '';
+      if (isRoad && fullRoad) {
+        displayTitle = fullRoad.replace(/\s*\([^)]*\)\s*$/, '').trim();
+      } else {
+        displayTitle = (it.title || fullParcel || fullRoad || '').trim();
+      }
+      if (!displayTitle) continue;
+
+      const sido = extracted.sido;
+      const sigungu = extracted.sigungu;
+
+      // 중복 체크: displayTitle + sido + sigungu 조합으로
+      const dedupKey = `${sido}|${sigungu}|${displayTitle}`;
       if (seen.has(dedupKey)) continue;
       seen.add(dedupKey);
 
       candidates.push({
-        title,
+        title: displayTitle,
         sido,
         sigungu,
         parcel: fullParcel,
         road: fullRoad,
         zipcode: addr.zipcode || '',
         category: addr.category || category.toLowerCase(),
-        bldName: addr.bldnm || '',
-        // 임시 디버그: VWorld 원본 address 객체 (첫 3개 후보만)
-        _rawAddr: candidates.length < 3 ? addr : undefined,
-        _rawItem: candidates.length < 3 ? { id: it.id, title: it.title, category: it.category } : undefined
+        bldName: addr.bldnm || ''
       });
       if (candidates.length >= 20) break;
     }
 
-    console.log(`[SEARCH] ${candidates.length} candidates, sample address keys:`,
-      items[0] ? Object.keys(items[0].address || {}) : 'no items');
+    console.log(`[SEARCH] ${candidates.length} candidates`);
     json(res, 200, { success: true, candidates });
   } catch (err) {
     console.error('[SEARCH] error:', err);
