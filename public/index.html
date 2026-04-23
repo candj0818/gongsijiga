@@ -24,7 +24,7 @@
         </label>
         <textarea
           id="addressInput"
-          placeholder="지번: 서울특별시 금천구 독산동 378-33 문정파크 제2동 제203호&#10;도로명: 서울특별시 강남구 테헤란로 123  (둘 다 지원합니다, Ctrl+V)"
+          placeholder="지번: 서울특별시 금천구 독산동 378-33 문정파크 제2동 제203호&#10;도로명: 서울특별시 강남구 테헤란로 123&#10;축약: 독산동 378-33 (시/구 생략 가능 — 후보 목록에서 선택)"
           rows="3"
           autofocus
         ></textarea>
@@ -74,6 +74,20 @@
             </label>
           </div>
           <button id="lookupBtnManual" class="primary-btn" disabled>선택한 유형으로 조회</button>
+        </div>
+
+        <div class="detection-resolve" id="detectionResolve" hidden>
+          <div class="detection-label">
+            <span class="badge badge-warn">위치 확인 필요</span>
+          </div>
+          <div class="detection-reason">
+            시/도 정보가 없습니다. 검색 결과 중 해당하는 주소를 선택해주세요.
+          </div>
+          <div id="resolveLoading" class="loading" hidden>
+            <span class="spinner"></span>주소 검색 중...
+          </div>
+          <div id="resolveCandidates" class="type-options"></div>
+          <button id="lookupBtnResolved" class="primary-btn" disabled>선택한 주소로 조회</button>
         </div>
       </section>
 

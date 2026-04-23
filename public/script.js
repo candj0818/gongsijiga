@@ -18,10 +18,17 @@ const resultBox = document.getElementById('resultBox');
 const resultContent = document.getElementById('resultContent');
 const errorBox = document.getElementById('errorBox');
 const errorContent = document.getElementById('errorContent');
+const detectionResolve = document.getElementById('detectionResolve');
+const resolveLoading = document.getElementById('resolveLoading');
+const resolveCandidates = document.getElementById('resolveCandidates');
+const lookupBtnResolved = document.getElementById('lookupBtnResolved');
 
 // --- State ---
 let currentParsed = null;
 let currentType = null;
+let currentCandidates = [];
+let selectedCandidateIdx = null;
+let lastSearchQuery = null;
 
 // --- Type labels ---
 const TYPE_LABELS = {
@@ -73,7 +80,8 @@ function parseAddress(raw) {
       }
     }
   }
-  if (!sido) return null;
+  // 시/도가 없으면 축약 파싱 시도 (동/도로명부터 시작)
+  if (!sido) return parseAbbreviated(text);
 
   // --- 시/군/구 ---
   const sigunguMatch = rest.match(/^(\S+?(?:특별자치시|시|군|구))(\s|$)/);
@@ -194,6 +202,34 @@ function parseExtra(rest) {
   return { buildingName, buildingDong, floor, ho };
 }
 
+// --- 축약 파싱 (시/도 생략) ---
+// "봉천동 1529-16" 또는 "테헤란로 123" 처럼 시/도 없이 시작하는 주소
+function parseAbbreviated(text) {
+  let cursor = text;
+
+  // 선행 시/군/구 감지 (optional) — 예: "관악구 봉천동 1529-16"
+  const leadSigunguMatch = cursor.match(/^(\S+?(?:특별자치시|시|군|구))\s/);
+  if (leadSigunguMatch) {
+    cursor = cursor.slice(leadSigunguMatch[0].length);
+    const leadSub = cursor.match(/^(\S+?구)\s/);
+    if (leadSub) cursor = cursor.slice(leadSub[0].length);
+    cursor = cursor.trim();
+  }
+
+  const roadHeadMatch = cursor.match(/^(\S+?(?:대로|로|길))(\s|$)/);
+  const lotHeadMatch = cursor.match(/^(\S+?(?:동|리|가))(\s|$)/);
+
+  let result = null;
+  if (roadHeadMatch) {
+    result = parseRoadTail({}, cursor, text);
+  } else if (lotHeadMatch) {
+    result = parseLotTail({}, cursor, text);
+  }
+
+  if (!result) return null;
+  return { ...result, needsResolution: true };
+}
+
 // =========================================
 // 유형 자동 감지
 // =========================================
@@ -278,6 +314,16 @@ function showDetection(parsed, detection) {
   renderParsedPreview(parsed);
   detectionBox.hidden = false;
 
+  // 축약 주소: 먼저 시/구 후보 선택
+  if (parsed.needsResolution) {
+    detectionHigh.hidden = true;
+    detectionLow.hidden = true;
+    detectionResolve.hidden = false;
+    loadCandidates(parsed);
+    return;
+  }
+  detectionResolve.hidden = true;
+
   if (detection.confidence === 'high' || detection.confidence === 'medium') {
     detectionHigh.hidden = false;
     detectionLow.hidden = true;
@@ -291,6 +337,134 @@ function showDetection(parsed, detection) {
     document.querySelectorAll('input[name="ptype"]').forEach((r) => (r.checked = false));
     lookupBtnManual.disabled = true;
   }
+}
+
+// =========================================
+// 축약 주소 — 후보 로드/선택/병합
+// =========================================
+function buildSearchQuery(parsed) {
+  if (parsed.isRoad) {
+    let q = parsed.roadName;
+    if (parsed.subRoad) q += ` ${parsed.subRoad}번길`;
+    q += ` ${parsed.buildingNum}`;
+    if (parsed.buildingSubNum && parsed.buildingSubNum !== '0') q += `-${parsed.buildingSubNum}`;
+    return q;
+  } else {
+    let q = parsed.dong;
+    if (parsed.isSan) q += ' 산';
+    q += ` ${parsed.bonbun}`;
+    if (parsed.bubun && parsed.bubun !== '0') q += `-${parsed.bubun}`;
+    return q;
+  }
+}
+
+async function loadCandidates(parsed) {
+  const query = buildSearchQuery(parsed);
+  // 같은 쿼리면 재요청 방지
+  if (query === lastSearchQuery && currentCandidates.length > 0) {
+    renderCandidates(currentCandidates);
+    return;
+  }
+  lastSearchQuery = query;
+
+  resolveLoading.hidden = false;
+  resolveCandidates.innerHTML = '';
+  lookupBtnResolved.disabled = true;
+  selectedCandidateIdx = null;
+
+  try {
+    const res = await fetch('/api/search-address', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query, isRoad: parsed.isRoad })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || '주소 검색 실패');
+    }
+    currentCandidates = data.candidates || [];
+    renderCandidates(currentCandidates);
+  } catch (err) {
+    console.error(err);
+    resolveCandidates.innerHTML = `<div style="color:var(--danger);font-size:14px;">검색 실패: ${err.message}</div>`;
+  } finally {
+    resolveLoading.hidden = true;
+  }
+}
+
+function renderCandidates(candidates) {
+  if (!candidates || candidates.length === 0) {
+    resolveCandidates.innerHTML =
+      '<div style="color:var(--gray-500);font-size:14px;">검색 결과가 없습니다. 주소를 확인해주세요.</div>';
+    return;
+  }
+  const html = candidates
+    .map(
+      (c, i) => `
+      <label class="radio-chip">
+        <input type="radio" name="candidate" value="${i}" />
+        <span>${escapeHtml(c.title)}${c.bldName ? ` <small>(${escapeHtml(c.bldName)})</small>` : ''}</span>
+      </label>`
+    )
+    .join('');
+  resolveCandidates.innerHTML = html;
+
+  resolveCandidates.querySelectorAll('input[name="candidate"]').forEach((r) => {
+    r.addEventListener('change', (e) => {
+      selectedCandidateIdx = parseInt(e.target.value, 10);
+      lookupBtnResolved.disabled = false;
+    });
+  });
+
+  // 후보가 1개면 자동 선택
+  if (candidates.length === 1) {
+    const input = resolveCandidates.querySelector('input[name="candidate"]');
+    if (input) {
+      input.checked = true;
+      selectedCandidateIdx = 0;
+      lookupBtnResolved.disabled = false;
+    }
+  }
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+// 선택한 후보로 currentParsed 재구성
+function applyCandidateResolution(candidate) {
+  // 후보의 전체 주소 문자열을 풀 파서로 다시 파싱 → 시/도/구 구조 획득
+  const fullParsed = parseAddressStrict(candidate.title);
+  if (!fullParsed) {
+    showError('선택한 주소를 해석할 수 없습니다: ' + candidate.title);
+    return;
+  }
+  // 원본에서 뽑아둔 상세(호수/층/건물명 등) 보존
+  const merged = {
+    ...fullParsed,
+    buildingName: currentParsed.buildingName || fullParsed.buildingName || candidate.bldName || '',
+    buildingDong: currentParsed.buildingDong || fullParsed.buildingDong || '',
+    floor: currentParsed.floor || fullParsed.floor || '',
+    ho: currentParsed.ho || fullParsed.ho || ''
+  };
+  currentParsed = merged;
+
+  // 후보 패널 숨기고, 일반 감지 플로우로 진행
+  detectionResolve.hidden = true;
+  const detection = detectType(currentParsed);
+  showDetection(currentParsed, detection);
+}
+
+// parseAddress는 시/도 없으면 parseAbbreviated로 fallback하므로,
+// 재귀 방지를 위해 시/도 없을 땐 null을 돌려주는 엄격 버전을 별도로 둠
+function parseAddressStrict(raw) {
+  const p = parseAddress(raw);
+  if (!p || p.needsResolution) return null;
+  return p;
 }
 
 function renderResult(data) {
@@ -537,4 +711,10 @@ lookupBtnManual.addEventListener('click', () => {
   if (currentParsed && currentType) {
     lookupPrice(currentParsed, currentType);
   }
+});
+
+lookupBtnResolved.addEventListener('click', () => {
+  if (selectedCandidateIdx === null) return;
+  const c = currentCandidates[selectedCandidateIdx];
+  if (c) applyCandidateResolution(c);
 });

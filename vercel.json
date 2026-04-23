@@ -7,6 +7,9 @@
   "functions": {
     "api/lookup.js": {
       "maxDuration": 60
+    },
+    "api/search-address.js": {
+      "maxDuration": 30
     }
   },
   "headers": [
