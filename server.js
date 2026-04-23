@@ -33,6 +33,41 @@ loadEnv(path.join(__dirname, '.env.local'));
 
 // ---- API 핸들러 ----
 const lookupHandler = require('./api/lookup.js');
+const searchAddressHandler = require('./api/search-address.js');
+
+// POST 바디 읽기 + Vercel 스타일 res 헬퍼 부착 + 핸들러 실행 공용 함수
+function handleApiPost(handler, req, res) {
+  let body = '';
+  req.on('data', (chunk) => (body += chunk));
+  req.on('end', async () => {
+    try {
+      req.body = body ? JSON.parse(body) : {};
+    } catch (e) {
+      res.statusCode = 400;
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.end(JSON.stringify({ success: false, error: '잘못된 요청 형식입니다' }));
+      return;
+    }
+    res.status = function (code) { this.statusCode = code; return this; };
+    res.json = function (data) {
+      this.setHeader('Content-Type', 'application/json; charset=utf-8');
+      this.end(JSON.stringify(data));
+    };
+    res.send = function (data) {
+      this.end(typeof data === 'string' ? data : JSON.stringify(data));
+    };
+    try {
+      await handler(req, res);
+    } catch (err) {
+      console.error('[API 오류]', err);
+      if (!res.headersSent) {
+        res.statusCode = 500;
+        res.setHeader('Content-Type', 'application/json; charset=utf-8');
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    }
+  });
+}
 
 // ---- MIME 타입 ----
 const MIME = {
@@ -54,34 +89,11 @@ const server = http.createServer(async (req, res) => {
 
   // ---- API 라우트 ----
   if (parsed.pathname === '/api/lookup' && req.method === 'POST') {
-    let body = '';
-    req.on('data', (chunk) => (body += chunk));
-    req.on('end', async () => {
-      try {
-        req.body = body ? JSON.parse(body) : {};
-      } catch (e) {
-        res.statusCode = 400;
-        res.setHeader('Content-Type', 'application/json; charset=utf-8');
-        res.end(JSON.stringify({ success: false, error: '잘못된 요청 형식입니다' }));
-        return;
-      }
-      // Vercel 스타일 res 헬퍼 추가
-      res.status = function (code) { this.statusCode = code; return this; };
-      res.json = function (data) {
-        this.setHeader('Content-Type', 'application/json; charset=utf-8');
-        this.end(JSON.stringify(data));
-      };
-      try {
-        await lookupHandler(req, res);
-      } catch (err) {
-        console.error('[API 오류]', err);
-        if (!res.headersSent) {
-          res.statusCode = 500;
-          res.setHeader('Content-Type', 'application/json; charset=utf-8');
-          res.end(JSON.stringify({ success: false, error: err.message }));
-        }
-      }
-    });
+    handleApiPost(lookupHandler, req, res);
+    return;
+  }
+  if (parsed.pathname === '/api/search-address' && req.method === 'POST') {
+    handleApiPost(searchAddressHandler, req, res);
     return;
   }
 
@@ -114,12 +126,10 @@ server.listen(PORT, () => {
   const mockNote = process.env.MOCK_MODE === 'true' ? ' (MOCK 모드)' : '';
   console.log('');
   console.log('==========================================');
-  console.log(`  🏠 공시가격 간편 조회 서버 시작!${mockNote}`);
+  console.log(`  공시가격 간편 조회 서버 시작!${mockNote}`);
   console.log('==========================================');
   console.log('');
-  console.log(`  👉 브라우저에서 아래 주소로 접속하세요:`);
-  console.log(`     http://localhost:${PORT}`);
-  console.log('');
+  console.log(`  브라우저에서 http://localhost:${PORT} 접속`);
   console.log(`  (종료하려면 Ctrl + C)`);
   console.log('');
 });
