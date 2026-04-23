@@ -121,14 +121,15 @@ function parseAddress(raw) {
 
 // --- 도로명주소 꼬리 파싱 ---
 function parseRoadTail(head, rest, raw) {
-  const roadMatch = rest.match(/^(\S+?(?:대로|로|길))/);
+  // (?=\s|$) lookahead로 "봉화산로6길", "테헤란로3길" 같은 N길/N번길 붙은 도로명 전체를 한 토큰으로 잡는다
+  const roadMatch = rest.match(/^(\S+?(?:대로|로|길))(?=\s|$)/);
   if (!roadMatch) return null;
   const roadName = roadMatch[1];
   rest = rest.slice(roadName.length).trim();
 
-  // 번길 (선택): 예) "123번길"
+  // 번길 (선택, "번" optional): 예) "123번길" 또는 "6길"
   let subRoad = null;
-  const subRoadMatch = rest.match(/^(\d+)번길(\s|$)/);
+  const subRoadMatch = rest.match(/^(\d+)(?:번)?길(\s|$)/);
   if (subRoadMatch) {
     subRoad = subRoadMatch[1];
     rest = rest.slice(subRoadMatch[0].length).trim();

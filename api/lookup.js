@@ -376,9 +376,8 @@ async function fetchApt(pnu, parsed, requestDomain) {
   console.log('[DEBUG] 공동주택 전체 수신:', allItems.length, '건');
 
   // 동/호 매칭 (숫자만 비교해서 "제148동" vs "148" 같은 표기 차이 흡수)
+  // 경매 맥락: 입력한 동/호가 없으면 대체 호수를 보여주지 않고 명확히 에러 처리
   let matched = allItems;
-  let dongMatched = true;
-  let hoMatched = true;
 
   if (parsed.buildingDong) {
     const target = String(parsed.buildingDong).trim();
@@ -397,19 +396,21 @@ async function fetchApt(pnu, parsed, requestDomain) {
       return itemCore === targetCore;
     });
 
-    if (dongOnly.length > 0) {
-      matched = dongOnly;
-    } else {
-      dongMatched = false;
+    if (dongOnly.length === 0) {
+      const err = new Error('해당 동/호가 공동주택 공시가격 데이터를 찾을수 없습니다. 정확한 주소를 다시 입력해주세요');
+      err.code = 'UNIT_NOT_FOUND';
+      throw err;
     }
+    matched = dongOnly;
   }
   if (parsed.ho) {
     const hoOnly = matched.filter((it) => String(it.hoNm || '') === String(parsed.ho));
-    if (hoOnly.length > 0) {
-      matched = hoOnly;
-    } else {
-      hoMatched = false;
+    if (hoOnly.length === 0) {
+      const err = new Error('해당 동/호가 공동주택 공시가격 데이터를 찾을수 없습니다. 정확한 주소를 다시 입력해주세요');
+      err.code = 'UNIT_NOT_FOUND';
+      throw err;
     }
+    matched = hoOnly;
   }
 
   // 최신 연도 기준 정렬
@@ -432,14 +433,7 @@ async function fetchApt(pnu, parsed, requestDomain) {
     .map(([year, value]) => ({ year, value }))
     .sort((a, b) => b.year - a.year);
 
-  // 매칭 실패 안내
-  let notice = null;
-  if (parsed.buildingDong && !dongMatched) {
-    notice = `⚠️ 입력하신 ${parsed.buildingDong}동이 이 단지에 없어서, 해당 번지의 대표 호수를 표시합니다. 동 번호를 다시 확인해주세요. (표시된 동: ${latest.dongNm})`;
-  } else if (parsed.ho && !hoMatched) {
-    notice = `⚠️ 입력하신 ${parsed.ho}호를 찾지 못해 같은 동의 다른 호수를 표시합니다. (표시된 호수: ${latest.hoNm}호)`;
-  }
-
+  // 동/호 매칭에 성공한 경우만 여기 도달 — notice 불필요
   return {
     price: {
       label: '공동주택가격',
@@ -453,7 +447,7 @@ async function fetchApt(pnu, parsed, requestDomain) {
       { label: '호', value: latest.hoNm || '-' },
       { label: '전용면적', value: latest.prvuseAr ? latest.prvuseAr + '㎡' : '-' }
     ],
-    notice
+    notice: null
   };
 }
 
