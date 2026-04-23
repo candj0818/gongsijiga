@@ -610,6 +610,7 @@ async function safeFetchJson(url, label, maxRetries = 2) {
 function formatAddress(parsed) {
   let s = `${parsed.sido} ${parsed.sigungu}`;
   if (parsed.sigungu2) s += ` ${parsed.sigungu2}`;
+  if (parsed.eupmyeon) s += ` ${parsed.eupmyeon}`;
 
   if (parsed.isRoad) {
     s += ` ${parsed.roadName}`;
@@ -635,6 +636,7 @@ function formatAddress(parsed) {
 function formatLotAddressForGeocode(parsed) {
   let s = `${parsed.sido} ${parsed.sigungu}`;
   if (parsed.sigungu2) s += ` ${parsed.sigungu2}`;
+  if (parsed.eupmyeon) s += ` ${parsed.eupmyeon}`;
   s += ` ${parsed.dong}`;
   if (parsed.isSan) s += ' 산';
   s += ` ${parsed.bonbun}`;
@@ -645,6 +647,7 @@ function formatLotAddressForGeocode(parsed) {
 function formatRoadAddressForGeocode(parsed) {
   let s = `${parsed.sido} ${parsed.sigungu}`;
   if (parsed.sigungu2) s += ` ${parsed.sigungu2}`;
+  if (parsed.eupmyeon) s += ` ${parsed.eupmyeon}`;
   s += ` ${parsed.roadName}`;
   if (parsed.subRoad) s += ` ${parsed.subRoad}번길`;
   s += ` ${parsed.buildingNum}`;

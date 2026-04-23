@@ -97,15 +97,23 @@ function parseAddress(raw) {
     rest = rest.slice(sigungu2.length).trim();
   }
 
+  // 읍/면 (선택) — 예: 경기도 용인시 처인구 "원삼면" 사암리 55
+  const eupmyeonMatch = rest.match(/^(\S+?(?:읍|면))(\s|$)/);
+  let eupmyeon = null;
+  if (eupmyeonMatch) {
+    eupmyeon = eupmyeonMatch[1];
+    rest = rest.slice(eupmyeon.length).trim();
+  }
+
   // --- 도로명 vs 지번 판별 ---
   const roadHeadMatch = rest.match(/^(\S+?(?:대로|로|길))(\s|$)/);
   const lotHeadMatch = rest.match(/^(\S+?(?:동|리|가))(\s|$)/);
 
   if (roadHeadMatch) {
-    return parseRoadTail({ sido, sigungu, sigungu2 }, rest, text);
+    return parseRoadTail({ sido, sigungu, sigungu2, eupmyeon }, rest, text);
   }
   if (lotHeadMatch) {
-    return parseLotTail({ sido, sigungu, sigungu2 }, rest, text);
+    return parseLotTail({ sido, sigungu, sigungu2, eupmyeon }, rest, text);
   }
 
   return null;
@@ -216,14 +224,22 @@ function parseAbbreviated(text) {
     cursor = cursor.trim();
   }
 
+  // 읍/면 (선택) — 예: "원삼면 사암리 55"
+  let eupmyeon = null;
+  const leadEupmyeonMatch = cursor.match(/^(\S+?(?:읍|면))\s/);
+  if (leadEupmyeonMatch) {
+    eupmyeon = leadEupmyeonMatch[1];
+    cursor = cursor.slice(leadEupmyeonMatch[0].length).trim();
+  }
+
   const roadHeadMatch = cursor.match(/^(\S+?(?:대로|로|길))(\s|$)/);
   const lotHeadMatch = cursor.match(/^(\S+?(?:동|리|가))(\s|$)/);
 
   let result = null;
   if (roadHeadMatch) {
-    result = parseRoadTail({}, cursor, text);
+    result = parseRoadTail({ eupmyeon }, cursor, text);
   } else if (lotHeadMatch) {
-    result = parseLotTail({}, cursor, text);
+    result = parseLotTail({ eupmyeon }, cursor, text);
   }
 
   if (!result) return null;
@@ -287,6 +303,9 @@ function renderParsedPreview(parsed) {
   }
   if (parsed.sigungu) {
     lines.push(`<div><span class="label">시/군/구</span><span class="value">${parsed.sigungu}${parsed.sigungu2 ? ' ' + parsed.sigungu2 : ''}</span></div>`);
+  }
+  if (parsed.eupmyeon) {
+    lines.push(`<div><span class="label">읍/면</span><span class="value">${parsed.eupmyeon}</span></div>`);
   }
 
   if (parsed.isRoad) {
