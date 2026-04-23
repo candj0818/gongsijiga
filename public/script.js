@@ -282,8 +282,12 @@ function renderParsedPreview(parsed) {
     : '<span class="badge badge-warn" style="margin-right:6px;">지번</span>';
   lines.push(`<div style="margin-bottom:4px;">${formatBadge}</div>`);
 
-  lines.push(`<div><span class="label">시/도</span><span class="value">${parsed.sido}</span></div>`);
-  lines.push(`<div><span class="label">시/군/구</span><span class="value">${parsed.sigungu}${parsed.sigungu2 ? ' ' + parsed.sigungu2 : ''}</span></div>`);
+  if (parsed.sido) {
+    lines.push(`<div><span class="label">시/도</span><span class="value">${parsed.sido}</span></div>`);
+  }
+  if (parsed.sigungu) {
+    lines.push(`<div><span class="label">시/군/구</span><span class="value">${parsed.sigungu}${parsed.sigungu2 ? ' ' + parsed.sigungu2 : ''}</span></div>`);
+  }
 
   if (parsed.isRoad) {
     let road = parsed.roadName;
