@@ -119,15 +119,39 @@ module.exports = async (req, res) => {
     const seen = new Set();
     const candidates = [];
     for (const it of items) {
-      const title = (it.title || it.address?.parcel || it.address?.road || '').trim();
+      const addr = it.address || {};
+      const title = (it.title || addr.parcel || addr.road || '').trim();
       if (!title) continue;
-      if (seen.has(title)) continue;
-      seen.add(title);
+
+      // 시/도 + 시/군/구 추출 (VWorld가 구조화 필드를 안 주는 경우를 대비해
+      // parcel/road 전체 문자열에서 regex fallback)
+      let sido = (addr.sido || addr.level1 || '').trim();
+      let sigungu = (addr.sigungu || addr.level2 || '').trim();
+      const fullParcel = (addr.parcel || '').trim();
+      const fullRoad = (addr.road || '').trim();
+      if (!sido || !sigungu) {
+        const src = fullParcel || fullRoad || '';
+        const m = src.match(/^(\S+?(?:특별시|광역시|특별자치시|특별자치도|도))\s+(\S+?(?:시|군|구))/);
+        if (m) {
+          if (!sido) sido = m[1];
+          if (!sigungu) sigungu = m[2];
+        }
+      }
+
+      // 중복 체크: title + sido + sigungu 조합으로 (같은 동이름이 여러 시에 있을 수 있음)
+      const dedupKey = `${sido}|${sigungu}|${title}`;
+      if (seen.has(dedupKey)) continue;
+      seen.add(dedupKey);
+
       candidates.push({
         title,
-        zipcode: it.address?.zipcode || '',
-        category: it.address?.category || category.toLowerCase(),
-        bldName: it.address?.bldnm || ''
+        sido,
+        sigungu,
+        parcel: fullParcel,
+        road: fullRoad,
+        zipcode: addr.zipcode || '',
+        category: addr.category || category.toLowerCase(),
+        bldName: addr.bldnm || ''
       });
       if (candidates.length >= 20) break;
     }

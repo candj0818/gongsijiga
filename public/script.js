@@ -403,13 +403,22 @@ function renderCandidates(candidates) {
     return;
   }
   const html = candidates
-    .map(
-      (c, i) => `
+    .map((c, i) => {
+      // 표시용 라벨: 시/도 + 시/군/구 + title (중복 방지)
+      let label = '';
+      const prefix = [c.sido, c.sigungu].filter(Boolean).join(' ').trim();
+      if (prefix && c.title && !c.title.startsWith(prefix)) {
+        label = `${prefix} ${c.title}`;
+      } else {
+        label = c.title || prefix || '(주소 정보 없음)';
+      }
+      const bld = c.bldName ? ` <small>(${escapeHtml(c.bldName)})</small>` : '';
+      return `
       <label class="radio-chip">
         <input type="radio" name="candidate" value="${i}" />
-        <span>${escapeHtml(c.title)}${c.bldName ? ` <small>(${escapeHtml(c.bldName)})</small>` : ''}</span>
-      </label>`
-    )
+        <span>${escapeHtml(label)}${bld}</span>
+      </label>`;
+    })
     .join('');
   resolveCandidates.innerHTML = html;
 
@@ -440,22 +449,38 @@ function escapeHtml(s) {
 }
 
 // 선택한 후보로 currentParsed 재구성
+// 핵심: candidate.title을 재파싱하지 말고, candidate.sido + candidate.sigungu만
+// 원본 currentParsed에 덧입힌다. title은 VWorld가 지번/도로명 중 하나로만 줘서
+// 원본의 도로명/건물번호/동/호수와 혼용하면 해석 불가능해지기 때문.
 function applyCandidateResolution(candidate) {
-  // 후보의 전체 주소 문자열을 풀 파서로 다시 파싱 → 시/도/구 구조 획득
-  const fullParsed = parseAddressStrict(candidate.title);
-  if (!fullParsed) {
-    showError('선택한 주소를 해석할 수 없습니다: ' + candidate.title);
-    return;
+  const sido = candidate.sido || '';
+  const sigungu = candidate.sigungu || '';
+
+  if (!sido || !sigungu) {
+    // 안전장치: 시/도·시/군/구가 비어있으면 title에서 최후 파싱 시도
+    const fullParsed = parseAddressStrict(candidate.title);
+    if (!fullParsed) {
+      showError('선택한 주소에서 시/도 정보를 가져올 수 없습니다: ' + candidate.title);
+      return;
+    }
+    currentParsed = {
+      ...fullParsed,
+      buildingName: currentParsed.buildingName || fullParsed.buildingName || candidate.bldName || '',
+      buildingDong: currentParsed.buildingDong || fullParsed.buildingDong || '',
+      floor: currentParsed.floor || fullParsed.floor || '',
+      ho: currentParsed.ho || fullParsed.ho || ''
+    };
+  } else {
+    // 정상 경로: 원본 parsed에 시/도, 시/군/구만 얹고 needsResolution 해제
+    currentParsed = {
+      ...currentParsed,
+      sido,
+      sigungu,
+      sigungu2: currentParsed.sigungu2 || '',
+      buildingName: currentParsed.buildingName || candidate.bldName || '',
+      needsResolution: false
+    };
   }
-  // 원본에서 뽑아둔 상세(호수/층/건물명 등) 보존
-  const merged = {
-    ...fullParsed,
-    buildingName: currentParsed.buildingName || fullParsed.buildingName || candidate.bldName || '',
-    buildingDong: currentParsed.buildingDong || fullParsed.buildingDong || '',
-    floor: currentParsed.floor || fullParsed.floor || '',
-    ho: currentParsed.ho || fullParsed.ho || ''
-  };
-  currentParsed = merged;
 
   // 후보 패널 숨기고, 일반 감지 플로우로 진행
   detectionResolve.hidden = true;
