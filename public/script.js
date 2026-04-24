@@ -1066,4 +1066,154 @@ const handleInput = debounce(() => {
 
 // =========================================
 // 단지명 검색 (주소 파싱 실패시)
-// =================================
+// =========================================
+async function triggerBuildingSearch(query) {
+  // 프로그래밍으로 input 바꾼 경우 재검색 막음
+  if (isProgrammaticInput) return;
+
+  // 동일 쿼리 연속 호출 방지
+  if (query === lastBuildingQuery && !buildingSearchBox.hidden) return;
+  lastBuildingQuery = query;
+
+  buildingSearchBox.hidden = false;
+  buildingSearchQuery.textContent = `"${query}"`;
+  buildingSearchLoading.hidden = false;
+  buildingSearchCandidates.innerHTML = '';
+  buildingSearchEmpty.hidden = true;
+
+  try {
+    const res = await fetch('/api/search-building', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      throw new Error(data.error || '단지명 검색 실패');
+    }
+    renderBuildingCandidates(data.candidates || []);
+  } catch (err) {
+    console.error('[building search]', err);
+    buildingSearchCandidates.innerHTML =
+      `<div class="building-search-empty">검색 실패: ${escapeHtml(err.message)}</div>`;
+  } finally {
+    buildingSearchLoading.hidden = true;
+  }
+}
+
+function renderBuildingCandidates(candidates) {
+  if (!candidates || candidates.length === 0) {
+    buildingSearchEmpty.hidden = false;
+    buildingSearchCandidates.innerHTML = '';
+    return;
+  }
+  buildingSearchEmpty.hidden = true;
+
+  const html = candidates
+    .map((c, i) => {
+      const sourceBadge = c.source === 'juso'
+        ? '<span class="source-badge juso">juso</span>'
+        : '<span class="source-badge vworld">VWorld</span>';
+      const primary = escapeHtml(c.bldName || c.title || '(이름 없음)');
+      // 표시용: 시/도 + 시/군/구 + 주소
+      const addrText = c.roadAddress || c.jibunAddress || c.displayAddress || '';
+      const addrDisplay = escapeHtml(addrText);
+      return `
+        <label class="radio-chip building-candidate">
+          <input type="radio" name="buildingCandidate" value="${i}" />
+          <span class="candidate-main">
+            ${sourceBadge}
+            <strong class="candidate-name">${primary}</strong>
+          </span>
+          <small class="candidate-addr">${addrDisplay}</small>
+        </label>`;
+    })
+    .join('');
+  buildingSearchCandidates.innerHTML = html;
+
+  // 선택시 즉시 주소 입력란에 채우고 재파싱
+  buildingSearchCandidates.querySelectorAll('input[name="buildingCandidate"]').forEach((r) => {
+    r.addEventListener('change', (e) => {
+      const idx = parseInt(e.target.value, 10);
+      const chosen = candidates[idx];
+      if (!chosen) return;
+      applyBuildingCandidate(chosen);
+    });
+  });
+}
+
+function applyBuildingCandidate(candidate) {
+  // juso 결과는 지번주소를 우선 (우리 파서가 지번에 더 강함)
+  // VWorld 결과는 parcel/road 중 먼저 있는 거 사용
+  const addr = candidate.jibunAddress || candidate.roadAddress || candidate.displayAddress;
+  if (!addr) {
+    showError('선택한 단지의 주소 정보를 찾을 수 없습니다');
+    return;
+  }
+
+  // 건물명이 있으면 주소 뒤에 붙여서 buildingName이 파싱되도록 함
+  let combined = addr;
+  if (candidate.bldName && !addr.includes(candidate.bldName)) {
+    combined = `${addr} ${candidate.bldName}`;
+  }
+
+  // 프로그래밍 변경 플래그 세팅 — input 이벤트가 다시 triggerBuildingSearch 하지 않도록
+  isProgrammaticInput = true;
+  addressInput.value = combined;
+  isProgrammaticInput = false;
+
+  // 단지명 검색 박스 숨기기
+  buildingSearchBox.hidden = true;
+  lastBuildingQuery = null;
+
+  // 직접 파싱해서 일반 흐름으로 태움
+  const parsed = parseAddress(combined);
+  if (!parsed) {
+    showError(`선택한 주소를 해석하지 못했습니다: ${combined}`);
+    return;
+  }
+  hideError();
+  currentParsed = parsed;
+  const detection = detectType(parsed);
+  showDetection(parsed, detection);
+  // 스크롤
+  detectionBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+addressInput.addEventListener('input', handleInput);
+addressInput.addEventListener('paste', () => {
+  setTimeout(handleInput, 0);
+});
+
+lookupBtn.addEventListener('click', () => {
+  if (currentParsed && currentType) {
+    lookupPrice(currentParsed, currentType);
+  }
+});
+
+changeTypeBtn.addEventListener('click', () => {
+  detectionHigh.hidden = true;
+  detectionLow.hidden = false;
+  currentType = null;
+  document.querySelectorAll('input[name="ptype"]').forEach((r) => (r.checked = false));
+  lookupBtnManual.disabled = true;
+});
+
+document.querySelectorAll('input[name="ptype"]').forEach((radio) => {
+  radio.addEventListener('change', (e) => {
+    currentType = e.target.value;
+    lookupBtnManual.disabled = false;
+  });
+});
+
+lookupBtnManual.addEventListener('click', () => {
+  if (currentParsed && currentType) {
+    lookupPrice(currentParsed, currentType);
+  }
+});
+
+lookupBtnResolved.addEventListener('click', () => {
+  if (selectedCandidateIdx === null) return;
+  const c = currentCandidates[selectedCandidateIdx];
+  if (c) applyCandidateResolution(c);
+});
