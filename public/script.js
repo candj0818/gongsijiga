@@ -22,6 +22,12 @@ const detectionResolve = document.getElementById('detectionResolve');
 const resolveLoading = document.getElementById('resolveLoading');
 const resolveCandidates = document.getElementById('resolveCandidates');
 const lookupBtnResolved = document.getElementById('lookupBtnResolved');
+// 단지명 검색 UI
+const buildingSearchBox = document.getElementById('buildingSearchBox');
+const buildingSearchQuery = document.getElementById('buildingSearchQuery');
+const buildingSearchLoading = document.getElementById('buildingSearchLoading');
+const buildingSearchCandidates = document.getElementById('buildingSearchCandidates');
+const buildingSearchEmpty = document.getElementById('buildingSearchEmpty');
 
 // --- State ---
 let currentParsed = null;
@@ -31,6 +37,8 @@ let selectedCandidateIdx = null;
 let lastSearchQuery = null;
 let lastLookupData = null;   // 최근 공시가격 조회 응답 (실거래가 조회시 재사용)
 let tradesState = null;      // { propertyType, startYmd, endYmd, trades[], monthsQueried, totalInLawd }
+let lastBuildingQuery = null; // 최근 단지명 검색어 (중복 호출 방지)
+let isProgrammaticInput = false; // 후보 선택으로 input 값을 바꿀 때 parseAddress 루프 방지
 
 // --- Type labels ---
 const TYPE_LABELS = {
@@ -1025,6 +1033,7 @@ const handleInput = debounce(() => {
   const raw = addressInput.value.trim();
   if (!raw) {
     detectionBox.hidden = true;
+    buildingSearchBox.hidden = true;
     resultBox.hidden = true;
     errorBox.hidden = true;
     return;
@@ -1032,54 +1041,29 @@ const handleInput = debounce(() => {
 
   const parsed = parseAddress(raw);
   if (!parsed) {
+    // 주소 파싱 실패 → 단지명으로 검색 시도 (2자 이상일 때만)
     detectionBox.hidden = true;
-    showError(
-      '주소 형식을 인식하지 못했습니다. 아래 예시처럼 입력해주세요:\n' +
-        '  • 지번: 서울특별시 관악구 봉천동 1529-16\n' +
-        '  • 도로명: 서울특별시 강남구 테헤란로 123'
-    );
+    if (raw.length >= 2) {
+      hideError();
+      triggerBuildingSearch(raw);
+    } else {
+      buildingSearchBox.hidden = true;
+      showError(
+        '주소 또는 단지명을 입력해주세요:\n' +
+          '  • 지번: 서울특별시 관악구 봉천동 1529-16\n' +
+          '  • 도로명: 서울특별시 강남구 테헤란로 123\n' +
+          '  • 단지명: 쌍용 더플래티넘 용마산'
+      );
+    }
     return;
   }
   hideError();
+  buildingSearchBox.hidden = true;
   currentParsed = parsed;
   const detection = detectType(parsed);
   showDetection(parsed, detection);
 }, 250);
 
-addressInput.addEventListener('input', handleInput);
-addressInput.addEventListener('paste', () => {
-  setTimeout(handleInput, 0);
-});
-
-lookupBtn.addEventListener('click', () => {
-  if (currentParsed && currentType) {
-    lookupPrice(currentParsed, currentType);
-  }
-});
-
-changeTypeBtn.addEventListener('click', () => {
-  detectionHigh.hidden = true;
-  detectionLow.hidden = false;
-  currentType = null;
-  document.querySelectorAll('input[name="ptype"]').forEach((r) => (r.checked = false));
-  lookupBtnManual.disabled = true;
-});
-
-document.querySelectorAll('input[name="ptype"]').forEach((radio) => {
-  radio.addEventListener('change', (e) => {
-    currentType = e.target.value;
-    lookupBtnManual.disabled = false;
-  });
-});
-
-lookupBtnManual.addEventListener('click', () => {
-  if (currentParsed && currentType) {
-    lookupPrice(currentParsed, currentType);
-  }
-});
-
-lookupBtnResolved.addEventListener('click', () => {
-  if (selectedCandidateIdx === null) return;
-  const c = currentCandidates[selectedCandidateIdx];
-  if (c) applyCandidateResolution(c);
-});
+// =========================================
+// 단지명 검색 (주소 파싱 실패시)
+// =================================

@@ -11,6 +11,9 @@
     "api/search-address.js": {
       "maxDuration": 30
     },
+    "api/search-building.js": {
+      "maxDuration": 30
+    },
     "api/trades.js": {
       "maxDuration": 60
     }

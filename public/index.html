@@ -24,11 +24,29 @@
         </label>
         <textarea
           id="addressInput"
-          placeholder="지번: 서울특별시 금천구 독산동 378-33 문정파크 제2동 제203호&#10;도로명: 서울특별시 강남구 테헤란로 123&#10;축약: 독산동 378-33 (시/구 생략 가능 — 후보 목록에서 선택)"
+          placeholder="지번: 서울특별시 금천구 독산동 378-33 문정파크 제2동 제203호&#10;도로명: 서울특별시 강남구 테헤란로 123&#10;축약: 독산동 378-33 (시/구 생략 가능)&#10;단지명: 쌍용 더플래티넘 용마산, 역곡역 e편한세상"
           rows="3"
           autofocus
         ></textarea>
-        <div class="paste-hint">주소를 붙여넣는 순간 자동으로 분석됩니다</div>
+        <div class="paste-hint">주소 또는 단지명을 입력하세요 — 자동으로 분석됩니다</div>
+      </section>
+
+      <!-- STEP 1.5: 단지명 검색 결과 (주소 파싱 실패시) -->
+      <section class="building-search-box" id="buildingSearchBox" hidden>
+        <div class="detection-label">
+          <span class="badge badge-success">🏢 단지명 검색</span>
+          <span id="buildingSearchQuery"></span>
+        </div>
+        <div class="detection-reason">
+          주소 형식이 아닌 것 같아 단지명으로 검색했습니다. 해당하는 결과를 선택하세요.
+        </div>
+        <div id="buildingSearchLoading" class="loading" hidden>
+          <span class="spinner"></span>단지를 찾고 있습니다...
+        </div>
+        <div id="buildingSearchCandidates" class="type-options"></div>
+        <div id="buildingSearchEmpty" class="building-search-empty" hidden>
+          검색 결과가 없습니다. 다른 키워드로 시도하거나 주소를 직접 입력해주세요.
+        </div>
       </section>
 
       <!-- STEP 2: 감지 결과 / 유형 확인 -->
