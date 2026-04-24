@@ -651,7 +651,7 @@ function renderTradesIntro(data) {
             <span>🏘️ 연립/다세대</span>
           </label>
         </div>
-        <button id="loadTradesBtn" class="primary-btn">최근 2년 거래 조회</button>
+        <button id="loadTradesBtn" class="primary-btn">최근 5년 거래 조회</button>
       </div>
       <div id="tradesResult"></div>
     </div>
@@ -666,9 +666,9 @@ function attachTradesHandlers() {
 async function loadInitialTrades() {
   const selected = document.querySelector('input[name="tradeType"]:checked');
   const propertyType = selected ? selected.value : 'apt';
-  // 최근 24개월: 이번 달 ~ 24개월 전
+  // 최근 60개월 (5년): 이번 달 ~ 60개월 전
   const endYmd = ymdOffsetMonths(0);
-  const startYmd = ymdOffsetMonths(23);
+  const startYmd = ymdOffsetMonths(59);
   await fetchAndRenderTrades(propertyType, startYmd, endYmd, { reset: true });
 }
 
@@ -695,7 +695,7 @@ async function fetchAndRenderTrades(propertyType, startYmd, endYmd, { reset }) {
 
   // 로딩 표시
   if (reset) {
-    container.innerHTML = '<div class="loading"><span class="spinner"></span>실거래가를 조회하고 있습니다... (최대 24개월)</div>';
+    container.innerHTML = '<div class="loading"><span class="spinner"></span>실거래가를 조회하고 있습니다... (최대 60개월)</div>';
     // intro 박스 숨기기 (조회 시작하면 툴바만 남김)
     const intro = document.querySelector('#tradesSection .trades-intro');
     if (intro) intro.style.display = 'none';
