@@ -33,9 +33,10 @@ try {
 const API = {
   geocode: 'https://api.vworld.kr/req/address',
   // VWorld NED(국가공간정보센터) 직접 호출 — VWorld 키로 인증
-  house:   'https://api.vworld.kr/ned/data/getIndvdHousingPriceAttr',
-  apt:     'https://api.vworld.kr/ned/data/getApartHousingPriceAttr',
-  land:    'https://api.vworld.kr/ned/data/getIndvdLandPriceAttr'
+  house:    'https://api.vworld.kr/ned/data/getIndvdHousingPriceAttr',
+  apt:      'https://api.vworld.kr/ned/data/getApartHousingPriceAttr',
+  land:     'https://api.vworld.kr/ned/data/getIndvdLandPriceAttr',
+  landChar: 'https://api.vworld.kr/ned/data/getLandCharacteristics'
 };
 
 module.exports = async (req, res) => {
@@ -502,11 +503,11 @@ async function fetchApt(pnu, parsed, requestDomain) {
 }
 
 async function fetchLand(pnu, requestDomain) {
-  // 최신 연도부터 역순으로 3개 연도 병렬 조회
+  // 최신 연도부터 역순으로 10개 연도 병렬 조회 (공시지가 이력)
   const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 3 }, (_, i) => currentYear - i);
+  const years = Array.from({ length: 10 }, (_, i) => currentYear - i);
 
-  async function fetchYear(year) {
+  async function fetchPriceYear(year) {
     const url = new URL(API.land);
     url.searchParams.set('key', VWORLD_KEY);
     url.searchParams.set('pnu', pnu);
@@ -525,20 +526,51 @@ async function fetchLand(pnu, requestDomain) {
     }
   }
 
-  const responses = await Promise.all(years.map(fetchYear));
+  // 토지특성: 지목/면적/용도지역 (별도 API). 속성은 연도별로 거의 안 바뀌므로 최신연도 1회만.
+  // 최신 연도에 데이터가 없을 가능성 대비 1년 전까지 2회 시도.
+  async function fetchLandChar() {
+    for (const year of [currentYear, currentYear - 1]) {
+      const url = new URL(API.landChar);
+      url.searchParams.set('key', VWORLD_KEY);
+      url.searchParams.set('pnu', pnu);
+      url.searchParams.set('format', 'json');
+      url.searchParams.set('numOfRows', '10');
+      url.searchParams.set('pageNo', '1');
+      url.searchParams.set('stdrYear', String(year));
+      url.searchParams.set('domain', requestDomain || 'http://localhost:3000');
+      try {
+        const data = await safeFetchJson(url.toString(), `토지특성(${year})`);
+        const items = extractItems(data);
+        if (items && items.length > 0) return items[0];
+      } catch (err) {
+        console.log(`[DEBUG] 토지특성 ${year}년 실패:`, err.message);
+      }
+    }
+    return null;
+  }
+
+  const [priceResponses, landChar] = await Promise.all([
+    Promise.all(years.map(fetchPriceYear)),
+    fetchLandChar()
+  ]);
 
   // 연도별 아이템 병합
   const allItems = [];
-  responses.forEach(({ year, items }) => {
+  priceResponses.forEach(({ year, items }) => {
     items.forEach((it) => allItems.push({ ...it, _year: year }));
   });
-  if (allItems.length === 0) return null;
+  if (allItems.length === 0 && !landChar) return null;
 
-  console.log('[DEBUG] 개별공시지가 전체 수신:', allItems.length, '건');
+  console.log('[DEBUG] 개별공시지가 전체 수신:', allItems.length, '건, 토지특성:', landChar ? '있음' : '없음');
 
   // 최신 연도 우선 정렬
   allItems.sort((a, b) => b._year - a._year);
-  const latest = allItems[0];
+  const latest = allItems[0] || {};
+
+  // 상세 정보: 토지특성 API 우선, 가격 API 값은 폴백
+  const jimok = landChar?.lndcgrCodeNm || latest.lndcgrCodeNm || '-';
+  const landArea = landChar?.lndpclAr || latest.lndpclAr || null;
+  const useZone = landChar?.prposArea1Nm || latest.prposArea1Nm || '-';
 
   // 연도별 가격 이력 (한 연도당 하나)
   const byYear = new Map();
@@ -558,9 +590,9 @@ async function fetchLand(pnu, requestDomain) {
     },
     history,
     details: [
-      { label: '지목', value: latest.lndcgrCodeNm || '-' },
-      { label: '면적', value: (latest.lndpclAr || '-') + (latest.lndpclAr ? '㎡' : '') },
-      { label: '용도지역', value: latest.prposArea1Nm || '-' }
+      { label: '지목', value: jimok },
+      { label: '면적', value: landArea ? `${landArea}㎡` : '-' },
+      { label: '용도지역', value: useZone }
     ]
   };
 }
@@ -569,13 +601,15 @@ async function fetchLand(pnu, requestDomain) {
 // Helpers
 // =========================================
 function extractItems(data) {
-  // VWorld NED: data.indvdHousingPrices.field / apHousingPrices.field / indvdLandPrices.field
+  // VWorld NED: data.indvdHousingPrices.field / apHousingPrices.field / indvdLandPrices.field / landCharacteristicss.field
   // 구 data.go.kr: data.response.body.items.item
   const ned =
     data?.indvdHousingPrices?.field ||
     data?.apHousingPrices?.field ||
     data?.apartHousingPrices?.field ||
     data?.indvdLandPrices?.field ||
+    data?.landCharacteristicss?.field ||
+    data?.landCharacteristics?.field ||
     null;
 
   if (ned) return Array.isArray(ned) ? ned : [ned];
@@ -586,6 +620,15 @@ function extractItems(data) {
     data?.items?.item ||
     null;
   if (legacy) return Array.isArray(legacy) ? legacy : [legacy];
+
+  // 마지막 폴백: 최상위 객체 중 .field를 가진 키가 있으면 그걸 사용 (VWorld 응답 키 명명 규칙 변경 대비)
+  if (data && typeof data === 'object') {
+    for (const v of Object.values(data)) {
+      if (v && typeof v === 'object' && v.field) {
+        return Array.isArray(v.field) ? v.field : [v.field];
+      }
+    }
+  }
 
   return null;
 }
