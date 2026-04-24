@@ -467,6 +467,18 @@ async function fetchApt(pnu, parsed, requestDomain) {
   // 동/호 매칭에 성공한 경우만 여기 도달 — notice 불필요
   // 실거래가 조회에서 사용할 수 있도록 tradeParams 포함
   const exclusiveAreaNum = parseFloat(latest.prvuseAr) || null;
+
+  // PNU로부터 지번 도출 (도로명/지번 불문 — 경매 매칭의 가장 확실한 키)
+  // PNU 구조: [0..9]=법정동코드, [10]=대장구분(1/2), [11..14]=본번(4), [15..18]=부번(4)
+  let jibunStr = null;
+  try {
+    const pnuBonbun = parseInt(pnu.slice(11, 15), 10);
+    const pnuBubun  = parseInt(pnu.slice(15, 19), 10);
+    if (!isNaN(pnuBonbun) && pnuBonbun > 0) {
+      jibunStr = pnuBubun > 0 ? `${pnuBonbun}-${pnuBubun}` : `${pnuBonbun}`;
+    }
+  } catch (_) { /* ignore */ }
+
   return {
     price: {
       label: '공동주택가격',
@@ -484,7 +496,7 @@ async function fetchApt(pnu, parsed, requestDomain) {
     tradeParams: {
       aptName: parsed.buildingName || '',
       exclusiveArea: exclusiveAreaNum,
-      jibun: parsed.isRoad ? null : `${parsed.bonbun}${parsed.bubun && parsed.bubun !== '0' ? '-' + parsed.bubun : ''}`
+      jibun: jibunStr
     }
   };
 }

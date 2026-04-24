@@ -613,12 +613,16 @@ function formatYmd(ymd) {
 // 초기 렌더: "실거래가 조회" 버튼 + 타입 토글
 function renderTradesIntro(data) {
   const bldName = data.tradeParams.aptName || '';
+  const jibun = data.tradeParams.jibun || '';
   const autoType = detectPropertyType(bldName);
   const aptChecked = autoType === 'apt' ? 'checked' : '';
   const rhChecked = autoType === 'rowhouse' ? 'checked' : '';
   const areaLabel = data.tradeParams.exclusiveArea
-    ? `전용 ${data.tradeParams.exclusiveArea}㎡ ±1㎡`
+    ? `전용 ${data.tradeParams.exclusiveArea}㎡ ±1.5㎡`
     : '전용면적 정보 없음 (단지 전체 거래 표시)';
+  const matchLabel = jibun
+    ? `지번 ${jibun} 우선 매칭 (실패시 단지명 보조)`
+    : '단지명 + 전용면적 매칭';
 
   return `
     <div class="trades-section" id="tradesSection" style="margin-top:24px;">
@@ -626,7 +630,8 @@ function renderTradesIntro(data) {
       <div class="trades-intro">
         <div class="trades-filter-info">
           <div><strong>단지:</strong> ${escapeHtml(bldName || '(단지명 없음)')}</div>
-          <div><strong>필터:</strong> ${escapeHtml(areaLabel)}</div>
+          <div><strong>매칭방식:</strong> ${escapeHtml(matchLabel)}</div>
+          <div><strong>면적:</strong> ${escapeHtml(areaLabel)}</div>
         </div>
         <div class="trades-type-toggle">
           <label class="radio-chip compact">
@@ -701,6 +706,7 @@ async function fetchAndRenderTrades(propertyType, startYmd, endYmd, { reset }) {
       body: JSON.stringify({
         pnu: lastLookupData.pnu,
         aptName: lastLookupData.tradeParams.aptName,
+        jibun: lastLookupData.tradeParams.jibun,  // 지번 기반 매칭 (경매 맥락 최우선)
         exclusiveArea: lastLookupData.tradeParams.exclusiveArea,
         propertyType,
         startYmd,
@@ -717,7 +723,9 @@ async function fetchAndRenderTrades(propertyType, startYmd, endYmd, { reset }) {
         endYmd: data.endYmd,
         trades: data.trades || [],
         monthsQueried: data.monthsQueried,
-        totalInLawd: data.totalInLawd
+        totalInLawd: data.totalInLawd,
+        matchStrategy: data.matchStrategy || null,
+        nameHints: data.nameHints || null
       };
     } else {
       // 더 보기: 기존에 합치고 정렬
@@ -727,6 +735,11 @@ async function fetchAndRenderTrades(propertyType, startYmd, endYmd, { reset }) {
       tradesState.trades = [...tradesState.trades, ...(data.trades || [])].sort((a, b) =>
         a.dealDate < b.dealDate ? 1 : a.dealDate > b.dealDate ? -1 : 0
       );
+      // matchStrategy는 최신값 우선, nameHints는 여전히 0건일 때만 갱신
+      if (data.matchStrategy) tradesState.matchStrategy = data.matchStrategy;
+      if (tradesState.trades.length === 0 && data.nameHints) {
+        tradesState.nameHints = data.nameHints;
+      }
     }
     renderTradesTable();
   } catch (err) {
@@ -739,9 +752,17 @@ function renderTradesTable() {
   const container = document.getElementById('tradesResult');
   if (!container || !tradesState) return;
 
-  const { propertyType, startYmd, endYmd, trades, monthsQueried, totalInLawd } = tradesState;
+  const { propertyType, startYmd, endYmd, trades, monthsQueried, totalInLawd, matchStrategy, nameHints } = tradesState;
   const periodLabel = `${formatYmd(startYmd)} ~ ${formatYmd(endYmd)} (${monthsQueried}개월)`;
   const typeLabel = propertyType === 'rowhouse' ? '연립/다세대' : '아파트';
+
+  // 매칭 전략 배지 (jibun/name — 사용자에게 왜 이 결과인지 알려줌)
+  let strategyBadge = '';
+  if (matchStrategy === 'jibun+area') {
+    strategyBadge = '<span class="badge badge-success" style="margin-left:6px;">지번+면적 매칭</span>';
+  } else if (matchStrategy === 'name+area') {
+    strategyBadge = '<span class="badge badge-warn" style="margin-left:6px;">단지명+면적 매칭</span>';
+  }
 
   // 최대 확장 한도 체크 (서버측 60개월 제한과 맞춤)
   const canLoadMore = monthsQueried < 60;
@@ -749,20 +770,37 @@ function renderTradesTable() {
   let html = `
     <div class="trades-header">
       <div>
-        <div><strong>${escapeHtml(typeLabel)}</strong> · ${escapeHtml(periodLabel)}</div>
+        <div><strong>${escapeHtml(typeLabel)}</strong> · ${escapeHtml(periodLabel)}${strategyBadge}</div>
         <div class="trades-summary">일치 거래 ${trades.length}건 / 법정동 전체 ${totalInLawd}건</div>
       </div>
     </div>
   `;
 
   if (trades.length === 0) {
+    let hintHtml = '';
+    if (nameHints && nameHints.length > 0) {
+      const chips = nameHints.slice(0, 15).map((h) =>
+        `<span class="name-hint-chip">${escapeHtml(h.name)} <small>(${h.count})</small></span>`
+      ).join('');
+      hintHtml = `
+        <div class="trades-name-hints">
+          <div class="hint-label">📋 이 법정동에서 같은 기간 거래된 ${propertyType === 'rowhouse' ? '연립/다세대' : '아파트'} 단지명 (거래 건수):</div>
+          <div class="hint-chips">${chips}</div>
+          <div class="hint-note">
+            위 목록에 이 물건의 단지명이 있다면, RTMS 데이터에 등록된 명칭이 입력한 것과 달라서 매칭 실패한 것일 수 있어요.
+            ${propertyType === 'apt' ? '"연립/다세대"로 다시 조회' : '"아파트"로 다시 조회'}하면 결과가 나올 수도 있습니다.
+          </div>
+        </div>
+      `;
+    }
     html += `
       <div class="trades-empty">
         ${escapeHtml(periodLabel)} 내 일치 거래가 없습니다.
         ${totalInLawd > 0
-          ? `법정동 전체로는 ${totalInLawd}건 있어요 — 단지명 매칭이 안 됐거나 전용면적이 다를 수 있습니다.`
+          ? `법정동 전체로는 ${totalInLawd}건 있어요 — 지번/단지명 매칭이 안 됐거나 전용면적이 다를 수 있습니다.`
           : '이 법정동에는 해당 유형 거래 자체가 없습니다.'}
       </div>
+      ${hintHtml}
     `;
   } else {
     html += `

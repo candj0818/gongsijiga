@@ -123,18 +123,20 @@ function parsePriceMan(s) {
   return isNaN(n) ? null : n;
 }
 
-// 전용면적 매칭: ±1㎡ 허용
+// 전용면적 매칭: ±1.5㎡ 허용 (RTMS 표기 반올림 차이 흡수)
 function matchArea(itemArea, targetArea) {
   if (targetArea == null) return true; // 필터 미지정이면 전부 통과
   const a = parseFloat(itemArea);
   if (isNaN(a)) return false;
-  return Math.abs(a - targetArea) <= 1.0;
+  return Math.abs(a - targetArea) <= 1.5;
 }
 
-// 아파트명 매칭: 공백/특수문자 무시하고 부분일치
+// 아파트명 매칭: 공백/특수문자 무시 + "아파트"/"apt" 접미사 제거 + 부분일치
+// 예) "금호아파트" vs RTMS "금호", "금호1차" 모두 매칭
 function normalizeName(s) {
   return String(s || '')
     .replace(/[\s\-\(\)\[\]·,.]/g, '')
+    .replace(/(아파트|apt|apartment)$/i, '')
     .toLowerCase();
 }
 function matchName(itemName, targetName) {
@@ -143,6 +145,26 @@ function matchName(itemName, targetName) {
   const b = normalizeName(targetName);
   if (!a || !b) return false;
   return a.includes(b) || b.includes(a);
+}
+
+// 지번 매칭: "산" 접두/공백/특수문자 무시, 본번-부번 숫자 기반 비교
+// RTMS 응답의 jibun은 "378-33", "산 45-2", " 1529 " 등 포맷이 제각각
+function normalizeJibun(s) {
+  if (!s) return '';
+  const clean = String(s).replace(/^산\s*/, '').trim();
+  const m = clean.match(/^(\d+)(?:-(\d+))?/);
+  if (!m) return '';
+  const bonbun = parseInt(m[1], 10);
+  const bubun = m[2] ? parseInt(m[2], 10) : 0;
+  if (isNaN(bonbun) || bonbun === 0) return '';
+  return bubun > 0 ? `${bonbun}-${bubun}` : String(bonbun);
+}
+function matchJibun(itemJibun, targetJibun) {
+  if (!targetJibun) return null; // 필터 미지정이면 필터 건너뛰기
+  const a = normalizeJibun(itemJibun);
+  const b = normalizeJibun(targetJibun);
+  if (!a || !b) return false;
+  return a === b;
 }
 
 // "2025", "1", "15" → "2025-01-15"
@@ -220,6 +242,7 @@ module.exports = async (req, res) => {
   const body = req.body || {};
   const pnu = String(body.pnu || '').trim();
   const aptName = String(body.aptName || '').trim();
+  const jibun = String(body.jibun || '').trim();  // "378-33" 형태, 있으면 최우선 매칭
   const exclusiveArea = body.exclusiveArea != null ? Number(body.exclusiveArea) : null;
   const propertyType = body.propertyType === 'rowhouse' ? 'rowhouse' : 'apt';
   const startYmd = String(body.startYmd || '').trim();
@@ -271,17 +294,53 @@ module.exports = async (req, res) => {
 
     const totalInLawd = allTrades.length;
 
-    // 필터링: 단지명 + 전용면적
-    const filtered = allTrades.filter((t) => {
-      if (!matchName(t.name, aptName)) return false;
-      if (!matchArea(t.area, exclusiveArea)) return false;
-      return true;
-    });
+    // 필터링 전략 (경매 맥락 — 확실성 우선):
+    //   A. jibun이 있으면 → jibun + area 매칭 (가장 확실)
+    //      실패시 B로 폴백 (RTMS jibun 누락 데이터 대비)
+    //   B. 단지명 + area 매칭 (기존 방식, 루즈 매칭으로 완화됨)
+    let filtered = [];
+    let matchStrategy = null;
+
+    if (jibun) {
+      const byJibun = allTrades.filter((t) => {
+        if (matchJibun(t.jibun, jibun) !== true) return false;
+        if (!matchArea(t.area, exclusiveArea)) return false;
+        return true;
+      });
+      if (byJibun.length > 0) {
+        filtered = byJibun;
+        matchStrategy = 'jibun+area';
+      }
+    }
+
+    if (filtered.length === 0) {
+      filtered = allTrades.filter((t) => {
+        if (!matchName(t.name, aptName)) return false;
+        if (!matchArea(t.area, exclusiveArea)) return false;
+        return true;
+      });
+      if (filtered.length > 0) matchStrategy = 'name+area';
+    }
 
     // 거래일 내림차순 정렬
     filtered.sort((a, b) => (a.dealDate < b.dealDate ? 1 : a.dealDate > b.dealDate ? -1 : 0));
 
-    console.log(`[TRADES] total=${totalInLawd} filtered=${filtered.length}`);
+    // 0매칭 + 법정동 거래 있음 → 단지명 힌트 제공 (최대 20개)
+    let nameHints = null;
+    if (filtered.length === 0 && totalInLawd > 0) {
+      const nameCount = new Map();
+      for (const t of allTrades) {
+        const nm = (t.name || '').trim();
+        if (!nm) continue;
+        nameCount.set(nm, (nameCount.get(nm) || 0) + 1);
+      }
+      nameHints = [...nameCount.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 20)
+        .map(([name, count]) => ({ name, count }));
+    }
+
+    console.log(`[TRADES] total=${totalInLawd} filtered=${filtered.length} strategy=${matchStrategy || 'none'} jibun=${jibun || '-'}`);
 
     return json(res, 200, {
       success: true,
@@ -290,8 +349,10 @@ module.exports = async (req, res) => {
       endYmd,
       monthsQueried: months.length,
       totalInLawd,
-      filter: { aptName: aptName || null, exclusiveArea },
-      trades: filtered
+      matchStrategy,
+      filter: { aptName: aptName || null, jibun: jibun || null, exclusiveArea },
+      trades: filtered,
+      nameHints
     });
   } catch (err) {
     console.error('[TRADES] error:', err);
